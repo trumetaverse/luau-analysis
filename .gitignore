@@ -1,2 +1,4 @@
 /target
 .idea/*
+luau-sifter/target/*
+mem-analysis/target/*

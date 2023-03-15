@@ -1,5 +1,5 @@
 [package]
-name = "LuaObjectExtractor"
+name = "luau-sifter"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 #minidump-stackwalk = {version = '0.15.2'}
+
 minidump-processor = {version = '0.15.2'}
 clap = {version = '4.1.8', features=["derive"]}
 log = {version = "0.4"}
@@ -17,3 +18,4 @@ serde = { version = '1.0.156', features = ["derive"]}
 serde_json = { version = '1.0.94'}
 inquire = { version = "0.6.0", features = ["date"] }
 dialoguer = { version  = "0.10.3"}
+mem-analysis = {version = "0.1.0", path = "../mem-analysis"}
