@@ -1,6 +1,6 @@
 use std::error::{Error as StdErr};
 
-
+use regex::bytes::Regex;
 // use mem_analysis::memory::MemRange;
 // use mem_analysis::radare::{RadareMemoryInfo, RadareMemoryInfos};
 
@@ -16,6 +16,7 @@ pub enum OffsetType {
     RelativeOffset,
     VirtualAddress,
     PhysicalAddress,
+    None,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -31,12 +32,40 @@ pub struct SearchResult {
 pub struct RegexSearch {
     pub start_pattern: String,
     pub end_pattern : String,
-    pub location: u64,
-    pub offset: OffsetType,
+    pub start: Option<u64>,
+    pub stop: Option<u64>,
+    pub offset_type: Option<OffsetType>,
 }
 
 impl Search for RegexSearch {
     fn search(&self) -> Result<Option<SearchResult>, Box<dyn StdErr>> {
         return Ok(None);
+    }
+}
+
+impl RegexSearch {
+    pub fn create(re_start_tag: &Option<String>, re_end_tag: &Option<String>, start: Option<u64>, stop: Option<u64>, offtype: Option<OffsetType>) -> Result<RegexSearch, Box<dyn StdErr>> {
+        let regex_start: Regex = match re_start_tag {
+            Some(pattern) => match Regex::new(pattern.as_str()) {
+                Ok(r) => r,
+                Err(e) => panic!("Invalid regular expression provided: '{}', {}", pattern, e),
+            },
+            None => Regex::new(ROBLOX_REGEX_START).unwrap(),
+        };
+
+        let regex_end: Regex = match re_end_tag {
+            Some(pattern) => match Regex::new(pattern.as_str()) {
+                Ok(r) => r,
+                Err(e) => panic!("Invalid regular expression provided: '{}', {}", pattern, e),
+            },
+            None => Regex::new(ROBLOX_REGEX_END).unwrap(),
+        };
+        return Ok(RegexSearch {
+            stop: stop,
+            start: start,
+            start_pattern: regex_start.to_string(),
+            end_pattern: regex_end.to_string(),
+            offset_type: offtype,
+        })
     }
 }
