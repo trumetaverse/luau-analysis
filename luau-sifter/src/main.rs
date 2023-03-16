@@ -64,6 +64,8 @@ struct Arguments {
 
     #[arg(short, long, value_name = "FILE")]
     log_conf: Option<PathBuf>,
+
+
 }
 
 
@@ -72,6 +74,11 @@ struct Arguments {
 //     let pb = File::open(fname)?;
 //     return Ok(pb);
 // }
+
+fn interactive_loop() -> () {
+
+}
+
 
 fn main() {
     let mut open_files: HashMap<String, File> = HashMap::new();
@@ -112,6 +119,10 @@ fn main() {
 
     for info in infos.items.iter() {
         println!("{}", info);
+    }
+
+    if args.interactive {
+        interactive_loop();
     }
     println!("Enter the command");
 }

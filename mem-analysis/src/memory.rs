@@ -1,7 +1,10 @@
+use crate::radare::{RadareMemoryInfo, RadareMemoryInfos};
+use rangemap::RangeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde;
 use serde::Deserialize;
-use crate::radare::RadareMemoryInfo;
+use std::collections::HashMap;
+
 // use radare::{RadareMemoryInfo, RadareMemoryInfos};
 
 // pub struct SourceMeta<'a>{
@@ -9,7 +12,10 @@ use crate::radare::RadareMemoryInfo;
 //     source_type: &'a str,
 // }
 
-#[derive(Debug, Deserialize)]
+
+
+// #[derive(Debug, Deserialize, Eq)]
+#[derive(Debug, Eq, Deserialize, Clone)]
 pub struct MemRange<'a> {
     pub vaddr_start: u64,
     pub paddr_start: u64,
@@ -21,6 +27,8 @@ pub struct MemRange<'a> {
     // source: SourceMeta<'a>,
 }
 
+
+
 pub trait Memory {
     fn vaddr_in_range(&self, vaddr: u64) -> bool;
     fn paddr_in_range(&self, paddr: u64) -> bool;
@@ -30,6 +38,14 @@ pub trait Memory {
     fn get_vbase_from_paddr(&self, paddr: u64) -> Option<u64>;
     fn get_vaddr_from_paddr(&self, paddr: u64) -> Option<u64>;
     fn get_paddr_from_vaddr(&self, vaddr: u64) -> Option<u64>;
+}
+
+impl<'a> PartialEq for MemRange<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        // Equal if all key members are equal
+        self.vaddr_start == other.vaddr_start &&
+            self.paddr_start == other.paddr_start
+    }
 }
 
 impl<'a> Display for MemRange<'a> {
@@ -43,7 +59,7 @@ impl<'a> Display for MemRange<'a> {
 }
 
 impl<'a> MemRange<'a> {
-    pub fn from_radare_info(radare_info : &RadareMemoryInfo) -> Self{
+    pub fn from_radare_info(radare_info : &'a RadareMemoryInfo) -> Self{
         MemRange {
             vaddr_start: radare_info.vaddr,
             paddr_start: radare_info.paddr,
@@ -70,8 +86,8 @@ impl<'a> MemRange<'a> {
             vsize,
             size,
             data,
-            perm,
-            name,
+            perm: perm.clone(),
+            name: name.clone(),
         }
     }
 }
@@ -127,5 +143,58 @@ impl<'a> Memory for MemRange<'a> {
         }
         let addr = (vaddr - self.vaddr_start) + self.paddr_start;
         return Some(addr);
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct MemoryRanges<'a> {
+    vmem_ranges: HashMap<u64, MemRange<'a>>,
+    pmem_ranges: HashMap<u64, MemRange<'a>>,
+    // pub vmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
+    // pub pmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
+}
+
+// impl<'de: 'a> Deserialize<'de> for MemoryRanges<'a> {
+//     /* ... */
+// }
+
+impl<'a> MemoryRanges<'a> {
+    pub fn new() -> Self {
+        // MemoryRanges{vmem_ranges: RangeMap::new(), pmem_ranges: RangeMap::new()}
+        MemoryRanges{vmem_ranges: HashMap::new(), pmem_ranges: HashMap::new()}
+    }
+
+    pub fn add_mem_range(&mut self, mr : MemRange<'a>) -> () {
+        // self.vmem_ranges.insert(mr.vaddr_start..mr.vaddr_start+mr.vsize, mr);
+        // self.pmem_ranges.insert(mr.paddr_start..mr.paddr_start+mr.size, mr);
+
+        self.vmem_ranges.insert(mr.vaddr_start, mr.clone());
+        self.pmem_ranges.insert(mr.paddr_start, mr.clone());
+    }
+
+    pub fn get_paddr_range(&self, paddr: u64 ) -> Option<MemRange<'a>> {
+        return self.pmem_ranges.get(&paddr).cloned();
+    }
+
+    pub fn get_vaddr_range(&self, vaddr: u64 ) -> Option<MemRange<'a>> {
+        return self.vmem_ranges.get(&vaddr).cloned();
+    }
+    pub fn has_paddr(&self, paddr: u64 ) -> bool {
+        return self.pmem_ranges.contains_key(&paddr);
+    }
+
+    pub fn has_vaddr(&self, vaddr: u64 ) -> bool {
+        return self.vmem_ranges.contains_key(&vaddr);
+    }
+
+    pub fn from_radare_infos( radare : &'a RadareMemoryInfos) -> MemoryRanges<'a> {
+        let mut mrs = MemoryRanges::new();
+
+        for info in radare.items.iter() {
+            let mut mr = MemRange::from_radare_info(info);
+            mrs.add_mem_range(mr);
+        }
+        return mrs;
     }
 }
