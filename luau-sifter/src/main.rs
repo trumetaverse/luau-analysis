@@ -1,27 +1,27 @@
-use md5;
-use regex::bytes::Regex;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+
+
+
 // use regex::bytes::{Regex, Matches};
 use std::error::{Error as StdErr};
 // use std::io::{BufReader, Error as BufError, SeekFrom, Seek, BufRead, Read, Write};
-use std::io::{Read, Write};
+
 // use base64::{Engine as _, engine::general_purpose};
-use std::fs::{create_dir_all, File, OpenOptions}; //, Metadata};
+ //, Metadata};
 
 // use std::path::Component::ParentDir;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 
 use clap::Parser;
-use serde;
-use serde::Deserialize;
+
+
 
 // use log4rs::append::console::ConsoleAppender;
 // use log4rs::config::{Appender, Root};
 // use log4rs::Config;
-use log::{debug, error, info};
-use log4rs;
-use mem_analysis::memory::{MemRange, MemRanges};
-use mem_analysis::radare::{RadareMemoryInfo, RadareMemoryInfos};
+use log::{debug};
+
+use mem_analysis::memory::{MemRanges};
+use mem_analysis::radare::{RadareMemoryInfos};
 use mem_analysis::buffer::{DataBuffer};
 
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn StdErr>>{
     let infos = RadareMemoryInfos::from_radare_json(&args.r2_sections);
 
     debug!("Creating MemRanges and Loading dump file into memory: {:#?}.", args.dmp.as_os_str());
-    let datainterface = DataInterface{
+    let _datainterface = DataInterface{
         buffer: DataBuffer::from_pathbuf(&args.dmp, true),
         ranges: MemRanges::from_radare_infos(&infos)
     };
@@ -91,5 +91,5 @@ fn main() -> Result<(), Box<dyn StdErr>>{
         return interactive_loop();
     }
 
-    return Ok(());
+    Ok(())
 }
