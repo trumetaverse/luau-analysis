@@ -22,9 +22,9 @@ use serde::Deserialize;
 // use log4rs::Config;
 use log::{debug, error, info};
 use log4rs;
-use mem_analysis::memory::MemRange;
-
+use mem_analysis::memory::{MemRange, MemRanges};
 use mem_analysis::radare::{RadareMemoryInfo, RadareMemoryInfos};
+use mem_analysis::buffer::{DataBuffer};
 
 // #[derive(Debug, Default)]
 // pub struct LookupTables<'a>{
@@ -68,6 +68,11 @@ struct Arguments {
 
 }
 
+pub struct DataInterface {
+    pub buffer : DataBuffer,
+    pub ranges : MemRanges,
+}
+
 
 
 // fn open_file(fname: String ) -> Result<File, Err> {
@@ -94,19 +99,15 @@ fn main() {
 
     log4rs::init_file(log_conf, Default::default()).unwrap();
 
-    let mut memorySections: Vec<MemRange> = Vec::new();
-    let infos: RadareMemoryInfos = {
-        let text = std::fs::read_to_string(&args.r2_sections).unwrap();
-        serde_json::from_str::<RadareMemoryInfos>(&text).unwrap()
-        // let mut rmis : RadareMemoryInfos = RadareMemoryInfos{ infos: vec![]};
-        // for val in foos.infos.iter() {
-        //     let rmi = parse_radare_name(val);
-        //     rmis.infos.push(rmi);
-        // }
-        // rmis
+    debug!("Loading radare info from: {:#?}.", args.r2_sections.as_os_str());
+    let infos = RadareMemoryInfos::from_radare_json(&args.r2_sections);
+    // let mem_info = infos.items.get(0).unwrap();
+
+    debug!("Creating MemRanges and Loading dump file into memory: {:#?}.", args.dmp.as_os_str());
+    let datainterface = DataInterface{
+        buffer: DataBuffer::from_pathbuf(&args.dmp, true),
+        ranges: MemRanges::from_radare_infos(&infos)
     };
-    let mem_info = infos.items.get(0).unwrap();
-    memorySections.push(MemRange::from_radare_info(&mem_info));
     // {
     //     virt_base_address: 0,
     //     phys_base_address: 0,
@@ -117,9 +118,9 @@ fn main() {
     // });
     println!("{}", infos.items.get(0).unwrap());
 
-    for info in infos.items.iter() {
-        println!("{}", info);
-    }
+    // for info in infos.items.iter() {
+    //     println!("{}", info);
+    // }
 
     if args.interactive {
         interactive_loop();

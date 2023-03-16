@@ -19,3 +19,4 @@ serde_json = { version = '1.0.94'}
 inquire = { version = "0.6.0", features = ["date"] }
 dialoguer = { version  = "0.10.3"}
 mem-analysis = {version = "0.1.0", path = "../mem-analysis"}
+asset-digger = {version = "0.1.0", path = "../asset-digger"}

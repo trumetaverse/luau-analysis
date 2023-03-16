@@ -2,3 +2,4 @@
 .idea/*
 luau-sifter/target/*
 mem-analysis/target/*
+asset-digger/target/*

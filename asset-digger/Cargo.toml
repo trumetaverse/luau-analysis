@@ -1,0 +1,16 @@
+[package]
+name = "asset-digger"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base64 = {version = '0.21.0'}
+regex = {version = '1.7.1'}
+log = {version = "0.4"}
+log4rs = {version = "1"}
+md5 = {version = "0.7.0" }
+serde = { version = '1.0.156', features = ["derive"]}
+serde_json = { version = '1.0.94'}
+mem-analysis = {version = "0.1.0", path = "../mem-analysis"}
