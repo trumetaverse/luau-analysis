@@ -1,13 +1,13 @@
-use rangemap::RangeMap;
-use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::collections::HashMap;
+
+
+
 use std::io::{Read, Write};
 // use base64::{Engine as _, engine::general_purpose};
-use std::fs::{create_dir_all, File, OpenOptions}; //, Metadata};
+use std::fs::{File, OpenOptions}; //, Metadata};
 
 // use std::path::Component::ParentDir;
-use std::path::{Path, PathBuf};
-use log::{debug, error, info};
+use std::path::{PathBuf};
+use log::{debug, error};
 
 // use radare::{RadareMemoryInfo, RadareMemoryInfos};
 
@@ -26,11 +26,11 @@ pub struct DataBuffer {
 }
 
 impl DataBuffer {
-    pub fn load_data(&mut self) -> (){
+    pub fn load_data(&mut self){
 
         if self.filename.is_none() {
             error!("No filename provided for the backend data buffer.");
-            return ();
+            return ;
         }
         let r_file = OpenOptions::new()
             .read(true)
@@ -62,14 +62,14 @@ impl DataBuffer {
         if load_data && db.filename.is_some() {
             db.load_data();
         }
-        return db;
+        db
     }
-    pub fn load_data_slice(&self, buffer : &[u8]) -> (){}
-    pub fn load_data_vec(&self, buffer : &Vec<u8>) -> (){}
-    pub fn load_data_path(&self, path: &PathBuf) -> (){}
-    pub fn load_data_file(&self, path: &File) -> (){}
+    pub fn load_data_slice(&self, _buffer : &[u8]){}
+    pub fn load_data_vec(&self, _buffer : &Vec<u8>){}
+    pub fn load_data_path(&self, _path: &PathBuf){}
+    pub fn load_data_file(&self, _path: &File){}
 
-    pub fn add_vaddr_mapping(&mut self, vaddr: u64, paddr: u64, size: u64) -> () {
+    pub fn add_vaddr_mapping(&mut self, _vaddr: u64, _paddr: u64, _size: u64) {
         // self.vaddr_to_paddr_start.insert(vaddr .. vaddr + size, paddr);
         // self.paddr_to_vaddr_start.insert(paddr .. paddr + size, vaddr);
     }

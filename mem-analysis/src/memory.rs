@@ -4,15 +4,15 @@ use rangemap::RangeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::io::{Read, Write};
+
+use std::io::{Write};
 // use base64::{Engine as _, engine::general_purpose};
-use std::fs::{create_dir_all, File, OpenOptions}; //, Metadata};
+ //, Metadata};
 
 // use std::path::Component::ParentDir;
-use std::path::{Path, PathBuf};
-use log::{debug, error, info};
-use log4rs;
+
+use log::{debug};
+
 
 // use radare::{RadareMemoryInfo, RadareMemoryInfos};
 
@@ -102,16 +102,10 @@ impl MemRange {
             paddr_start,
             vsize,
             size,
-            data:  match data {
-                Some(v) => {Some(v.clone())},
-                None => None
-            },
-            perm: perm.clone(),
-            name: name.clone(),
-            backend: match backend {
-                Some(v) => Some(v),
-                None => None
-            },
+            data,
+            perm,
+            name,
+            backend,
         }
     }
 }
@@ -121,36 +115,36 @@ impl Memory for MemRange {
         if self.vaddr_start <= addr && addr <= self.vaddr_start + self.vsize {
             return true;
         }
-        return false;
+        false
     }
 
     fn paddr_in_range(&self, paddr: u64) -> bool {
         if self.paddr_start <= paddr && paddr <= self.paddr_start + self.size {
             return false;
         }
-        return self.vaddr_in_range(self.get_vaddr_from_paddr(paddr).unwrap());
+        self.vaddr_in_range(self.get_vaddr_from_paddr(paddr).unwrap())
     }
 
     fn get_size(&self) -> u64 {
-        return self.size;
+        self.size
     }
 
     fn get_vsize(&self) -> u64 {
-        return self.vsize;
+        self.vsize
     }
 
     fn get_vbase_from_vaddr(&self, vaddr: u64) -> Option<u64> {
         if !self.vaddr_in_range(vaddr) {
             return None;
         }
-        return Some(self.vaddr_start);
+        Some(self.vaddr_start)
     }
 
     fn get_vbase_from_paddr(&self, paddr: u64) -> Option<u64> {
         if !self.paddr_in_range(paddr) {
             return None;
         }
-        return Some(self.vaddr_start);
+        Some(self.vaddr_start)
     }
 
     fn get_vaddr_from_paddr(&self, paddr: u64) -> Option<u64> {
@@ -158,7 +152,7 @@ impl Memory for MemRange {
             return None;
         }
         let addr = (paddr - self.paddr_start) + self.vaddr_start;
-        return Some(addr);
+        Some(addr)
     }
 
     fn get_paddr_from_vaddr(&self, vaddr: u64) -> Option<u64> {
@@ -166,7 +160,7 @@ impl Memory for MemRange {
             return None;
         }
         let addr = (vaddr - self.vaddr_start) + self.paddr_start;
-        return Some(addr);
+        Some(addr)
     }
 
     // fn set_data(&self) -> () {}
@@ -191,14 +185,14 @@ impl MemRanges {
         MemRanges {vmem_ranges: RangeMap::new(), pmem_ranges: RangeMap::new()}
     }
 
-    pub fn add_mem_range(&mut self, mr : MemRange) -> () {
+    pub fn add_mem_range(&mut self, mr : MemRange) {
         // self.vmem_ranges.insert(mr.vaddr_start..mr.vaddr_start+mr.vsize, mr);
         // self.pmem_ranges.insert(mr.paddr_start..mr.paddr_start+mr.size, mr);
         // debug!("adding {} to the memranges.", mr);
         let vsz:u64 = if mr.vsize == 0 {1} else {mr.vsize};
         let sz:u64 = if mr.size == 0 {1} else {mr.size};
         self.vmem_ranges.insert(mr.vaddr_start .. mr.vaddr_start+vsz, mr.clone());
-        self.pmem_ranges.insert(mr.paddr_start ..  mr.paddr_start+sz, mr.clone());
+        self.pmem_ranges.insert(mr.paddr_start ..  mr.paddr_start+sz, mr);
     }
 
     pub fn get_paddr_range(&self, paddr: u64 ) -> Option<MemRange> {
@@ -209,20 +203,20 @@ impl MemRanges {
         return self.vmem_ranges.get(&vaddr).cloned();
     }
     pub fn has_paddr(&self, paddr: u64 ) -> bool {
-        return self.pmem_ranges.contains_key(&paddr);
+        self.pmem_ranges.contains_key(&paddr)
     }
 
     pub fn has_vaddr(&self, vaddr: u64 ) -> bool {
-        return self.vmem_ranges.contains_key(&vaddr);
+        self.vmem_ranges.contains_key(&vaddr)
     }
 
     pub fn from_radare_infos( radare : &RadareMemoryInfos) -> MemRanges {
         let mut mrs = MemRanges::new();
         debug!("Loading {} memory ranges and sections.", radare.items.len());
         for info in radare.items.iter() {
-            let mut mr = MemRange::from_radare_info(info);
+            let mr = MemRange::from_radare_info(info);
             mrs.add_mem_range(mr);
         }
-        return mrs;
+        mrs
     }
 }
