@@ -1,8 +1,7 @@
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde;
 use serde::Deserialize;
-use std::path::{PathBuf};
-
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct RadareMemoryInfo {
@@ -29,8 +28,6 @@ impl Display for RadareMemoryInfo {
         )
     }
 }
-
-
 
 pub fn parse_radare_name(info: &String) -> RadareMemoryInfo {
     let name_split_vector: Vec<&str> = info.split(' ').collect::<Vec<&str>>();
@@ -75,7 +72,7 @@ pub fn parse_radare_name(info: &String) -> RadareMemoryInfo {
 }
 
 impl RadareMemoryInfos {
-    pub fn from_radare_json(path :&PathBuf) -> RadareMemoryInfos {
+    pub fn from_radare_json(path: &PathBuf) -> RadareMemoryInfos {
         let text = std::fs::read_to_string(path).unwrap();
         serde_json::from_str::<RadareMemoryInfos>(&text).unwrap()
     }

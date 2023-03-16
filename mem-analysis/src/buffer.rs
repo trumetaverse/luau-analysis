@@ -1,13 +1,10 @@
-
-
-
 use std::io::{Read, Write};
 // use base64::{Engine as _, engine::general_purpose};
 use std::fs::{File, OpenOptions}; //, Metadata};
 
 // use std::path::Component::ParentDir;
-use std::path::{PathBuf};
 use log::{debug, error};
+use std::path::PathBuf;
 
 // use radare::{RadareMemoryInfo, RadareMemoryInfos};
 
@@ -18,26 +15,28 @@ use log::{debug, error};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DataBuffer {
-    pub filename : Option<String>,
-    pub size : u64,
-    pub data : Option<Vec<u8>>,
+    pub filename: Option<String>,
+    pub size: u64,
+    pub data: Option<Vec<u8>>,
     // pub vaddr_to_paddr_start : RangeMap<u64, u64>,
     // pub paddr_to_vaddr_start : RangeMap<u64, u64>,
 }
 
 impl DataBuffer {
-    pub fn load_data(&mut self){
-
+    pub fn load_data(&mut self) {
         if self.filename.is_none() {
             error!("No filename provided for the backend data buffer.");
-            return ;
+            return;
         }
         let r_file = OpenOptions::new()
             .read(true)
             .write(false)
             .open(self.filename.as_ref().unwrap());
 
-        debug!("Loading data buffer from file: {}.", self.filename.as_ref().unwrap());
+        debug!(
+            "Loading data buffer from file: {}.",
+            self.filename.as_ref().unwrap()
+        );
         assert_eq!(true, r_file.is_ok());
         let mut file = r_file.unwrap();
         self.size = file.metadata().unwrap().len();
@@ -45,12 +44,19 @@ impl DataBuffer {
         let read_bytes = file.read_to_end(&mut data);
         assert_eq!(true, read_bytes.is_ok());
         assert_eq!(true, *read_bytes.as_ref().unwrap() >= 0);
-        debug!("Load {} bytes from from file: {}.", read_bytes.unwrap(), self.filename.as_ref().unwrap());
+        debug!(
+            "Load {} bytes from from file: {}.",
+            read_bytes.unwrap(),
+            self.filename.as_ref().unwrap()
+        );
         self.data = Some(data);
     }
 
-    pub fn from_pathbuf(ifilename : &PathBuf, load_data : bool) -> Self {
-        debug!("Creating a data buffer from path: {}.", ifilename.as_os_str().to_str().unwrap());
+    pub fn from_pathbuf(ifilename: &PathBuf, load_data: bool) -> Self {
+        debug!(
+            "Creating a data buffer from path: {}.",
+            ifilename.as_os_str().to_str().unwrap()
+        );
         let mut db = DataBuffer {
             filename: Some(ifilename.as_os_str().to_str().expect("REASON").to_string()),
             size: 0,
@@ -64,14 +70,13 @@ impl DataBuffer {
         }
         db
     }
-    pub fn load_data_slice(&self, _buffer : &[u8]){}
-    pub fn load_data_vec(&self, _buffer : &Vec<u8>){}
-    pub fn load_data_path(&self, _path: &PathBuf){}
-    pub fn load_data_file(&self, _path: &File){}
+    pub fn load_data_slice(&self, _buffer: &[u8]) {}
+    pub fn load_data_vec(&self, _buffer: &Vec<u8>) {}
+    pub fn load_data_path(&self, _path: &PathBuf) {}
+    pub fn load_data_file(&self, _path: &File) {}
 
     pub fn add_vaddr_mapping(&mut self, _vaddr: u64, _paddr: u64, _size: u64) {
         // self.vaddr_to_paddr_start.insert(vaddr .. vaddr + size, paddr);
         // self.paddr_to_vaddr_start.insert(paddr .. paddr + size, vaddr);
     }
-
 }

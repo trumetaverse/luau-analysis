@@ -1,25 +1,12 @@
+use crate::buffer::DataBuffer;
 use crate::radare::{RadareMemoryInfo, RadareMemoryInfos};
-use crate::buffer::{DataBuffer};
 use rangemap::RangeMap;
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use serde;
 use serde::Deserialize;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use std::io::{Write};
-// use base64::{Engine as _, engine::general_purpose};
- //, Metadata};
-
-// use std::path::Component::ParentDir;
-
-use log::{debug};
-
-
-// use radare::{RadareMemoryInfo, RadareMemoryInfos};
-
-// pub struct SourceMeta<'a>{
-//     source_name: &'a str,
-//     source_type: &'a str,
-// }
+use log::debug;
+use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub enum BackendType {
@@ -28,7 +15,6 @@ pub enum BackendType {
     FullBuffer,
 }
 
-// #[derive(Debug, Deserialize, Eq)]
 #[derive(Debug, Clone, Eq)]
 pub struct MemRange {
     pub vaddr_start: u64,
@@ -41,8 +27,6 @@ pub struct MemRange {
     pub backend: Option<BackendType>,
     // source: SourceMeta<'a>,
 }
-
-
 
 pub trait Memory {
     fn vaddr_in_range(&self, vaddr: u64) -> bool;
@@ -58,8 +42,7 @@ pub trait Memory {
 impl PartialEq for MemRange {
     fn eq(&self, other: &Self) -> bool {
         // Equal if all key members are equal
-        self.vaddr_start == other.vaddr_start &&
-            self.paddr_start == other.paddr_start
+        self.vaddr_start == other.vaddr_start && self.paddr_start == other.paddr_start
     }
 }
 
@@ -74,7 +57,7 @@ impl Display for MemRange {
 }
 
 impl MemRange {
-    pub fn from_radare_info(radare_info : & RadareMemoryInfo) -> Self{
+    pub fn from_radare_info(radare_info: &RadareMemoryInfo) -> Self {
         MemRange {
             vaddr_start: radare_info.vaddr,
             paddr_start: radare_info.paddr,
@@ -95,7 +78,7 @@ impl MemRange {
         vsize: u64,
         size: u64,
         data: Option<DataBuffer>,
-        backend: Option<BackendType>
+        backend: Option<BackendType>,
     ) -> Self {
         MemRange {
             vaddr_start,
@@ -166,7 +149,6 @@ impl Memory for MemRange {
     // fn set_data(&self) -> () {}
 }
 
-
 #[derive(Debug, Clone)]
 pub struct MemRanges {
     vmem_ranges: RangeMap<u64, MemRange>,
@@ -182,35 +164,40 @@ pub struct MemRanges {
 impl MemRanges {
     pub fn new() -> Self {
         // MemoryRanges{vmem_ranges: RangeMap::new(), pmem_ranges: RangeMap::new()}
-        MemRanges {vmem_ranges: RangeMap::new(), pmem_ranges: RangeMap::new()}
+        MemRanges {
+            vmem_ranges: RangeMap::new(),
+            pmem_ranges: RangeMap::new(),
+        }
     }
 
-    pub fn add_mem_range(&mut self, mr : MemRange) {
+    pub fn add_mem_range(&mut self, mr: MemRange) {
         // self.vmem_ranges.insert(mr.vaddr_start..mr.vaddr_start+mr.vsize, mr);
         // self.pmem_ranges.insert(mr.paddr_start..mr.paddr_start+mr.size, mr);
         // debug!("adding {} to the memranges.", mr);
-        let vsz:u64 = if mr.vsize == 0 {1} else {mr.vsize};
-        let sz:u64 = if mr.size == 0 {1} else {mr.size};
-        self.vmem_ranges.insert(mr.vaddr_start .. mr.vaddr_start+vsz, mr.clone());
-        self.pmem_ranges.insert(mr.paddr_start ..  mr.paddr_start+sz, mr);
+        let vsz: u64 = if mr.vsize == 0 { 1 } else { mr.vsize };
+        let sz: u64 = if mr.size == 0 { 1 } else { mr.size };
+        self.vmem_ranges
+            .insert(mr.vaddr_start..mr.vaddr_start + vsz, mr.clone());
+        self.pmem_ranges
+            .insert(mr.paddr_start..mr.paddr_start + sz, mr);
     }
 
-    pub fn get_paddr_range(&self, paddr: u64 ) -> Option<MemRange> {
+    pub fn get_paddr_range(&self, paddr: u64) -> Option<MemRange> {
         return self.pmem_ranges.get(&paddr).cloned();
     }
 
-    pub fn get_vaddr_range(&self, vaddr: u64 ) -> Option<MemRange> {
+    pub fn get_vaddr_range(&self, vaddr: u64) -> Option<MemRange> {
         return self.vmem_ranges.get(&vaddr).cloned();
     }
-    pub fn has_paddr(&self, paddr: u64 ) -> bool {
+    pub fn has_paddr(&self, paddr: u64) -> bool {
         self.pmem_ranges.contains_key(&paddr)
     }
 
-    pub fn has_vaddr(&self, vaddr: u64 ) -> bool {
+    pub fn has_vaddr(&self, vaddr: u64) -> bool {
         self.vmem_ranges.contains_key(&vaddr)
     }
 
-    pub fn from_radare_infos( radare : &RadareMemoryInfos) -> MemRanges {
+    pub fn from_radare_infos(radare: &RadareMemoryInfos) -> MemRanges {
         let mut mrs = MemRanges::new();
         debug!("Loading {} memory ranges and sections.", radare.items.len());
         for info in radare.items.iter() {

@@ -1,12 +1,11 @@
-use std::error::{Error as StdErr};
-use std::path::{PathBuf};
 use clap::Parser;
-use log::{debug};
+use log::debug;
+use std::error::Error as StdErr;
+use std::path::PathBuf;
 
-use mem_analysis::memory::{MemRanges};
-use mem_analysis::radare::{RadareMemoryInfos};
-use mem_analysis::buffer::{DataBuffer};
-
+use mem_analysis::buffer::DataBuffer;
+use mem_analysis::memory::MemRanges;
+use mem_analysis::radare::RadareMemoryInfos;
 
 /// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser)]
@@ -34,13 +33,11 @@ struct Arguments {
 
     #[arg(short, long, value_name = "FILE")]
     log_conf: Option<PathBuf>,
-
-
 }
 
 pub struct DataInterface {
-    pub buffer : DataBuffer,
-    pub ranges : MemRanges,
+    pub buffer: DataBuffer,
+    pub ranges: MemRanges,
 }
 
 fn interactive_loop() -> Result<(), Box<dyn StdErr>> {
@@ -48,25 +45,28 @@ fn interactive_loop() -> Result<(), Box<dyn StdErr>> {
     Ok(())
 }
 
-
-fn main() -> Result<(), Box<dyn StdErr>>{
+fn main() -> Result<(), Box<dyn StdErr>> {
     let args = Arguments::parse();
 
-
-
     let log_conf = match args.log_conf {
-        Some(path) => {path},
-        None => {PathBuf::from("../logging_config.yaml")}
+        Some(path) => path,
+        None => PathBuf::from("../logging_config.yaml"),
     };
     log4rs::init_file(log_conf, Default::default()).unwrap();
 
-    debug!("Loading radare info from: {:#?}.", args.r2_sections.as_os_str());
+    debug!(
+        "Loading radare info from: {:#?}.",
+        args.r2_sections.as_os_str()
+    );
     let infos = RadareMemoryInfos::from_radare_json(&args.r2_sections);
 
-    debug!("Creating MemRanges and Loading dump file into memory: {:#?}.", args.dmp.as_os_str());
-    let _datainterface = DataInterface{
+    debug!(
+        "Creating MemRanges and Loading dump file into memory: {:#?}.",
+        args.dmp.as_os_str()
+    );
+    let _datainterface = DataInterface {
         buffer: DataBuffer::from_pathbuf(&args.dmp, true),
-        ranges: MemRanges::from_radare_infos(&infos)
+        ranges: MemRanges::from_radare_infos(&infos),
     };
     println!("{}", infos.items.get(0).unwrap());
 
