@@ -32,9 +32,9 @@ impl Display for RadareMemoryInfo {
 pub fn parse_radare_name(info: &String) -> RadareMemoryInfo {
     let name_split_vector: Vec<&str> = info.split(' ').collect::<Vec<&str>>();
     let mut paddr: u64 = 0;
-    let mut stype: u64 = 0;
-    let mut alloc: u64 = 0;
-    let mut state: u64 = 0;
+    let mut _stype: u64 = 0;
+    let mut _alloc: u64 = 0;
+    let mut _state: u64 = 0;
     for vstr in name_split_vector.iter() {
         if vstr.starts_with("paddr") {
             let imm = *vstr.split('=').collect::<Vec<&str>>().get(1).unwrap();
@@ -43,15 +43,15 @@ pub fn parse_radare_name(info: &String) -> RadareMemoryInfo {
         } else if vstr.starts_with("state") {
             let imm = *vstr.split('=').collect::<Vec<&str>>().get(1).unwrap();
             let v = u64::from_str_radix(imm.trim_start_matches("0x"), 16);
-            state = v.unwrap();
+            _state = v.unwrap();
         } else if vstr.starts_with("allocation") {
             let imm = *vstr.split('=').collect::<Vec<&str>>().get(1).unwrap();
             let v = u64::from_str_radix(imm.trim_start_matches("0x"), 16);
-            alloc = v.unwrap();
+            _alloc = v.unwrap();
         } else if vstr.starts_with("type") {
             let imm = *vstr.split('=').collect::<Vec<&str>>().get(1).unwrap();
             let v = u64::from_str_radix(imm.trim_start_matches("0x"), 16);
-            stype = v.unwrap();
+            _stype = v.unwrap();
         }
     }
     let name = *name_split_vector.last().unwrap();

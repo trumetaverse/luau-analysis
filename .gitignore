@@ -3,3 +3,5 @@
 luau-sifter/target/*
 mem-analysis/target/*
 asset-digger/target/*
+luau-search/target/*
+commands/target/*

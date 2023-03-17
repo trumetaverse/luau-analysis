@@ -1,17 +1,8 @@
-use std::io::{Read, Write};
-// use base64::{Engine as _, engine::general_purpose};
-use std::fs::{File, OpenOptions}; //, Metadata};
-
-// use std::path::Component::ParentDir;
+use std::io::{Read};
+use std::fs::{File, OpenOptions};
 use log::{debug, error};
 use std::path::PathBuf;
 
-// use radare::{RadareMemoryInfo, RadareMemoryInfos};
-
-// pub struct SourceMeta<'a>{
-//     source_name: &'a str,
-//     source_type: &'a str,
-// }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DataBuffer {
@@ -23,6 +14,12 @@ pub struct DataBuffer {
 }
 
 impl DataBuffer {
+    pub fn get_shared_buffer(&self) -> Option<&[u8]> {
+        match &self.data {
+            Some(buffer) => Some(&buffer[0 ..]),
+            None => None
+        }
+    }
     pub fn load_data(&mut self) {
         if self.filename.is_none() {
             error!("No filename provided for the backend data buffer.");
@@ -43,7 +40,7 @@ impl DataBuffer {
         let mut data = Vec::with_capacity(self.size as usize);
         let read_bytes = file.read_to_end(&mut data);
         assert_eq!(true, read_bytes.is_ok());
-        assert_eq!(true, *read_bytes.as_ref().unwrap() >= 0);
+        assert_eq!(*(read_bytes.as_ref().unwrap()) >= (0 as usize), true);
         debug!(
             "Load {} bytes from from file: {}.",
             read_bytes.unwrap(),

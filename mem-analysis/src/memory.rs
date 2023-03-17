@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use log::debug;
-use std::io::Write;
+
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub enum BackendType {
@@ -151,8 +151,9 @@ impl Memory for MemRange {
 
 #[derive(Debug, Clone)]
 pub struct MemRanges {
-    vmem_ranges: RangeMap<u64, MemRange>,
-    pmem_ranges: RangeMap<u64, MemRange>,
+    pub vmem_ranges: RangeMap<u64, MemRange>,
+    pub pmem_ranges: RangeMap<u64, MemRange>,
+
     // pub vmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
     // pub pmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
 }
