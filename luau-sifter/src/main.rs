@@ -14,6 +14,7 @@ use mem_analysis::memory::MemRanges;
 use mem_analysis::radare::RadareMemoryInfos;
 use luau_search::regex::{RegexSearch, ROBLOX_REGEX_START, ROBLOX_REGEX_END};
 use luau_search::search::{Search, SearchResult};
+use luau_search::pointer::{PointerSearch, RangePointer};
 
 /// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser)]
@@ -22,6 +23,10 @@ struct Arguments {
     /// input path of the memory dump
     #[arg(short, long, action, value_name = "FLAG")]
     interactive: bool,
+
+    /// input path of the memory dump
+    #[arg(short, long, action, value_name = "FLAG")]
+    quick_test: bool,
 
     /// input path of the memory dump
     #[arg(short, long, value_name = "FILE")]
@@ -143,10 +148,10 @@ fn search_regex_ranges(spattern : String, epattern : String, data_interface : &D
         .expect("Invalid Regex");
 
     for (_k, mr) in data_interface.ranges.pmem_ranges.iter() {
-        if !memory_regex.is_match(&mr.name) {
-            // info!("Skipping {} since it's not heap allocated.",mr.name);
-            continue;
-        }
+        // if !memory_regex.is_match(&mr.name) {
+        //     // info!("Skipping {} since it's not heap allocated.",mr.name);
+        //     continue;
+        // }
         debug!(
             "Searching Memory Range: {} of {} bytes from starting at vaddr {:08x} and paddr {:08x}.",
             mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
@@ -244,6 +249,10 @@ fn interactive_loop(spattern: String, epattern: String, o_outputdir : Option<Pat
 
 fn main() -> Result<(), Box<dyn StdErr>> {
     let args = Arguments::parse();
+
+    if args.quick_test {
+        let mut ptr_search = PointerSearch::new();
+    }
 
     let regex_start: Regex = match args.regex_start {
         Some(pattern) => match Regex::new(pattern.as_str()) {
