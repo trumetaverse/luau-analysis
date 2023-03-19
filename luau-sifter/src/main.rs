@@ -7,14 +7,13 @@ use std::fs::{create_dir_all};
 use regex::bytes::Regex;
 use regex::RegexBuilder;
 use serde_json::json;
-use md5;
 
 use mem_analysis::buffer::DataBuffer;
 use mem_analysis::memory::MemRanges;
 use mem_analysis::radare::RadareMemoryInfos;
-use luau_search::regex::{RegexSearch, ROBLOX_REGEX_START, ROBLOX_REGEX_END};
+use luau_search::regexblock::{RegexBlockSearch, ROBLOX_REGEX_START, ROBLOX_REGEX_END};
 use luau_search::search::{Search, SearchResult};
-use luau_search::pointer::{PointerSearch, RangePointer};
+use luau_search::pointer::{PointerSearch, PointerRange, ENDIAN};
 
 /// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser)]
@@ -64,9 +63,6 @@ fn check_create(ofilename: &PathBuf) -> std::io::Result<()> {
     return create_dir_all(ofilename);
 }
 
-fn compute_buffer_digest(data: &[u8]) -> String {
-    return format!("{:x}", md5::compute(data));
-}
 
 fn search_regex_all(spattern : String, epattern : String, data_interface : &DataInterface) -> Vec<SearchResult> {
     debug!(
@@ -80,7 +76,7 @@ fn search_regex_all(spattern : String, epattern : String, data_interface : &Data
     }
     let ro_buf = o_ro_buf.unwrap();
 
-    let search = RegexSearch::new(&spattern, &epattern, None, None,
+    let mut search = RegexBlockSearch::new(&spattern, &epattern, None, None,
                                   None, Some(0), Some(0));
     let r_results = search.search_buffer(&ro_buf);
 
@@ -111,13 +107,6 @@ fn search_regex_all(spattern : String, epattern : String, data_interface : &Data
             }
         }
     }
-    // update buffer digests
-    for r in search_results.iter_mut() {
-        let start = *(&r.paddr);
-        let end = *(&r.paddr) + *(&r.size);
-        let data = &ro_buf[start as usize .. end as usize];
-        r.digest = compute_buffer_digest(data);
-    }
     debug!("Found {} results.", search_results.len());
     // for r in search_results.iter() {
     //     println!("{:#?}", r);
@@ -128,8 +117,62 @@ fn search_regex_all(spattern : String, epattern : String, data_interface : &Data
 
 }
 
+fn search_for_pointers(pointer_search : &mut PointerSearch, data_interface : &DataInterface) -> Vec<SearchResult> {
+    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
+    debug!(
+        "Searching Memory Ranges pointer."
+    );
+    let o_ro_buf = data_interface.buffer.get_shared_buffer();
+    let mut search_results = Vec::new();
+    if !o_ro_buf.is_some() {
+        error!("No data loaded, can't search.");
+        return search_results;
+    }
+    let ro_buf = o_ro_buf.unwrap();
+
+    for (_k, mr) in data_interface.ranges.pmem_ranges.iter() {
+        // if !memory_regex.is_match(&mr.name) {
+        //     // info!("Skipping {} since it's not heap allocated.",mr.name);
+        //     continue;
+        // }
+        debug!(
+            "Searching Memory Range: {} of {} bytes from starting at vaddr {:08x} and paddr {:08x}.",
+            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
+        );
+        let vaddr:u64 = mr.vaddr_start;
+        let paddr:u64 = mr.paddr_start;
+        let size:u64 = mr.size;
+        let sbuff:&[u8] = &ro_buf[paddr as usize .. (paddr + size) as usize];
+        let r_results = pointer_search.perform_search_buffer_with_bases(sbuff, paddr, vaddr);
+
+        if r_results.is_ok() {
+            let mut results = r_results.unwrap();
+            for r in results.iter_mut() {
+                r.section_name = mr.name.clone();
+            }
+
+            search_results.append(&mut results);
+            info!(
+                "Found {} results in {}.",
+                results.len(), mr.name
+            );
+
+        } else {
+            info!(
+                "Found no results in {}.",mr.name
+            );
+        }
+    }
+    info!("Found {} results.", search_results.len());
+    // for r in search_results.iter() {
+    //     println!("{:#?}", r);
+    // }
+    println!("{}", json!(search_results));
+    return search_results;
+}
+
 fn search_regex_ranges(spattern : String, epattern : String, data_interface : &DataInterface) -> Vec<SearchResult> {
-    // let search = RegexSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
+    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
     debug!(
         "Searching Memory Ranges for {} => {}.", spattern, epattern,
     );
@@ -160,7 +203,7 @@ fn search_regex_ranges(spattern : String, epattern : String, data_interface : &D
         let paddr:u64 = mr.paddr_start;
         let size:u64 = mr.size;
         let sbuff:&[u8] = &ro_buf[paddr as usize .. (paddr + size) as usize];
-        let search = RegexSearch::new(&spattern, &epattern, None, None,
+        let mut search = RegexBlockSearch::new(&spattern, &epattern, None, None,
                                       None, Some(vaddr), Some(paddr));
         let r_results = search.search_buffer(sbuff);
 
@@ -168,10 +211,6 @@ fn search_regex_ranges(spattern : String, epattern : String, data_interface : &D
             let mut results = r_results.unwrap();
             for r in results.iter_mut() {
                 r.section_name = mr.name.clone();
-                let start = *(&r.paddr);
-                let end = *(&r.paddr) + *(&r.size);
-                let data = &ro_buf[start as usize .. end as usize];
-                r.digest = compute_buffer_digest(data);
             }
 
             search_results.append(&mut results);
@@ -223,6 +262,35 @@ fn interactive_loop(spattern: String, epattern: String, o_outputdir : Option<Pat
 
     let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(),&data_interface);
     let range_results = search_regex_ranges(spattern.clone(), epattern.clone(),&data_interface);
+    // start: start.clone(),
+    // stop : stop.clone(),
+    // // base_paddr: base_paddr,
+    // // base_vaddr: base_vaddr,
+    // //offset_type: None,
+    // // src_addrs: src_addrs.clone(),
+    // // sink_addrs: sink_addrs.clone(),
+    // word_sz: mword_sz,
+    // endian: match endian {
+    //     Some(v) => v,
+    //     None => ENDIAN::LITTLE
+    // },
+    // ptr_ranges: HashMap::new(),
+    // lookup: HashMap::new(),
+    // page_mask : 0xfffffffffffff000 as u64,
+    // page_size : 4096 as u64,
+    // vaddr_alignment: alignment
+
+    let mut ptr_search = PointerSearch::new(None, None, Some(32), Some(ENDIAN::LITTLE), Some(4), None, None);
+    let v_mrs = data_interface.ranges.get_mem_ranges();
+    let mut wv_mrs = Vec::new();
+    for mr in v_mrs.iter() {
+        if mr.perm.find("w").is_some() {
+            wv_mrs.push(mr.clone());
+        }
+    }
+    debug!("Adding memranges to the pointer search.");
+    ptr_search.add_mem_ranges(&wv_mrs);
+    let pointer_results = search_for_pointers(&mut ptr_search, data_interface);
 
     if o_outputdir.is_some() {
         let ofilepath = o_outputdir.as_ref().unwrap();
@@ -243,6 +311,9 @@ fn interactive_loop(spattern: String, epattern: String, o_outputdir : Option<Pat
         write_search_results(fd_results_filename,&full_dump_results);
         let mr_results_filename = ofilepath.join("memory_ranges_roblox_assets.json");
         write_search_results(mr_results_filename,&range_results);
+
+        let pr_results_filename = ofilepath.join("pointer_search_results.json");
+        write_search_results(pr_results_filename,&pointer_results);
     }
     Ok(())
 }
@@ -250,9 +321,6 @@ fn interactive_loop(spattern: String, epattern: String, o_outputdir : Option<Pat
 fn main() -> Result<(), Box<dyn StdErr>> {
     let args = Arguments::parse();
 
-    if args.quick_test {
-        let mut ptr_search = PointerSearch::new();
-    }
 
     let regex_start: Regex = match args.regex_start {
         Some(pattern) => match Regex::new(pattern.as_str()) {
@@ -286,6 +354,36 @@ fn main() -> Result<(), Box<dyn StdErr>> {
         "Creating MemRanges and Loading dump file into memory: {:#?}.",
         args.dmp.as_os_str()
     );
+
+    if args.quick_test {
+        debug!("Performing quick test of ptr search.");
+        let mut ptr_search = PointerSearch::new(None, None, Some(32), None, None, None,  None);
+        debug!("Creating memranges for the pointer search.");
+        let mrs = MemRanges::from_radare_infos(&infos);
+        debug!("Checking that no range pointers exist.");
+        let v1 = ptr_search.get_pointer_range_vec();
+        assert_eq!(v1.len(), 0);
+
+        // focus only on 'writable' memory
+        let v_mrs = mrs.get_mem_ranges();
+        let mut wv_mrs = Vec::new();
+        for mr in v_mrs.iter() {
+            if mr.perm.find("w").is_some() {
+                wv_mrs.push(mr.clone());
+            }
+        }
+        debug!("Adding memranges to the pointer search.");
+        ptr_search.add_mem_ranges(&wv_mrs);
+        debug!("Checking that range pointers were created with mem ranges.");
+        let v2 = ptr_search.get_pointer_range_vec();
+        // assert_eq!(v2.len() as u64, mrs.count());
+        debug!("Serializing a range pointers were created with mem ranges.");
+        let s = json!(**(v2.get(0).unwrap()));
+        println!("{}", s);
+        return Ok(());
+    }
+
+
     let data_interface = DataInterface {
         buffer: DataBuffer::from_pathbuf(&args.dmp, true),
         ranges: MemRanges::from_radare_infos(&infos),

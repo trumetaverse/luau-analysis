@@ -3,12 +3,13 @@ use std::error::Error as StdErr;
 
 use regex::bytes::Regex;
 use log::{info, debug};
+use md5;
 
 pub static ROBLOX_REGEX_START: &str = r"(:?<roblox)";
 pub static ROBLOX_REGEX_END: &str = r"(:?</roblox>)";
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct RegexSearch {
+pub struct RegexBlockSearch {
     pub start_pattern: String,
     pub end_pattern: String,
     pub start: Option<u64>,
@@ -18,16 +19,23 @@ pub struct RegexSearch {
     pub base_paddr: Option<u64>,
 }
 
-impl Search for RegexSearch {
-    fn search_buffer_next(&self, buffer: &[u8], pos: u64) -> Result<Option<SearchResult>, Box<dyn StdErr>> {
+impl Search for RegexBlockSearch {
+    fn search_buffer_next(&mut self, buffer: &[u8], pos: u64) -> Result<Option<SearchResult>, Box<dyn StdErr>> {
         return self.perform_search_buffer_next(buffer, pos);
     }
-    fn search_buffer(&self, buffer: &[u8]) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
+    fn search_buffer(&mut self, buffer: &[u8]) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
         return self.perform_search_buffer(buffer);
     }
-
+    fn search_buffer_with_bases(&mut self, buffer: &[u8], phys_base: u64, virt_base : u64) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
+        return self.perform_search_buffer_with_bases(buffer, phys_base, virt_base);
+    }
 }
-impl RegexSearch {
+impl RegexBlockSearch {
+
+    fn compute_buffer_digest(&self, data: &[u8]) -> String {
+        return format!("{:x}", md5::compute(data));
+    }
+
     pub fn new(
         re_start_tag: &String,
         re_end_tag: &String,
@@ -45,7 +53,7 @@ impl RegexSearch {
                 Err(e) => panic!("Invalid regular expression provided: '{}', {}", re_start_tag, e),
             };
 
-        RegexSearch {
+        RegexBlockSearch {
             stop,
             start,
             start_pattern: regex_start.to_string(),
@@ -78,7 +86,7 @@ impl RegexSearch {
             },
             None => Regex::new(ROBLOX_REGEX_END).unwrap(),
         };
-        return RegexSearch::new(
+        return RegexBlockSearch::new(
             &regex_start.to_string(),
             &regex_end.to_string(),
             stop,
@@ -103,7 +111,7 @@ impl RegexSearch {
         return results;
     }
 
-    fn perform_search_buffer_next(&self, buffer: &[u8], pos : u64 ) -> Result<Option<SearchResult>, Box<dyn StdErr>> {
+    fn perform_search_buffer_next(&mut self, buffer: &[u8], pos : u64 ) -> Result<Option<SearchResult>, Box<dyn StdErr>> {
         let start_pattern = Regex::new(&self.start_pattern.as_str()).unwrap();
         let end_pattern = Regex::new(&self.end_pattern.as_str()).unwrap();
 
@@ -152,12 +160,23 @@ impl RegexSearch {
                 None => start as u64
             },
             section_name: "".to_string(),
-            digest: "".to_string(),
+            digest: self.compute_buffer_digest(&buffer[start .. end]).clone(),
         }));
         return search_result;
     }
 
-    fn perform_search_buffer(&self, buffer: &[u8] ) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
+    pub fn perform_search_buffer_with_bases(&mut self, buffer: &[u8], phys_base: u64, virt_base : u64) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
+        let mut search_results = self.perform_search_buffer(buffer)?;
+        for r in search_results.iter_mut() {
+            let va = virt_base + r.boundary_offset;
+            let pa = phys_base + r.boundary_offset;
+            r.vaddr = va;
+            r.paddr = pa;
+        }
+        return Ok(search_results);
+    }
+
+    fn perform_search_buffer(&mut self, buffer: &[u8] ) -> Result<Vec<SearchResult>, Box<dyn StdErr>> {
         let start_pattern = Regex::new(&self.start_pattern.as_str()).unwrap();
         let end_pattern = Regex::new(&self.end_pattern.as_str()).unwrap();
 
@@ -222,7 +241,7 @@ impl RegexSearch {
                     None => start as u64
                 },
                 section_name: "".to_string(),
-                digest: "".to_string(),
+                digest: self.compute_buffer_digest(&buffer[start .. end]).clone(),
             };
             search_results.push(result);
             // want to find start markers that may overlap

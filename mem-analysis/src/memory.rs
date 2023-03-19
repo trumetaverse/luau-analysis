@@ -163,6 +163,9 @@ pub struct MemRanges {
 // }
 
 impl MemRanges {
+    pub fn count(&self) -> u64 {
+        return self.vmem_ranges.len() as u64;
+    }
     pub fn new() -> Self {
         // MemoryRanges{vmem_ranges: RangeMap::new(), pmem_ranges: RangeMap::new()}
         MemRanges {
@@ -206,5 +209,13 @@ impl MemRanges {
             mrs.add_mem_range(mr);
         }
         mrs
+    }
+
+    pub fn get_mem_ranges(&self) -> Vec<MemRange> {
+        let mut res = Vec::new();
+        for (range, mr) in self.vmem_ranges.iter() {
+            res.push(mr.clone())
+        }
+        return res;
     }
 }

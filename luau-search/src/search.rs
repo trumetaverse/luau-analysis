@@ -3,8 +3,9 @@ use serde::{Serialize};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 pub trait Search {
-    fn search_buffer_next(&self, buffer: &[u8], pos : u64) -> Result<Option<SearchResult>, Box<dyn StdErr>>;
-    fn search_buffer(&self, buffer: &[u8]) -> Result<Vec<SearchResult>, Box<dyn StdErr>>;
+    fn search_buffer_next(&mut self, buffer: &[u8], pos : u64) -> Result<Option<SearchResult>, Box<dyn StdErr>>;
+    fn search_buffer(&mut self, buffer: &[u8]) -> Result<Vec<SearchResult>, Box<dyn StdErr>>;
+    fn search_buffer_with_bases(&mut self, buffer: &[u8], phys_base: u64, virt_base : u64) -> Result<Vec<SearchResult>, Box<dyn StdErr>>;
 }
 
 #[derive(Debug, PartialEq, Clone)]
