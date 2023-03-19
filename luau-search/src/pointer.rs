@@ -156,13 +156,14 @@ impl PointerSearch {
         let mut search_results = Vec::new();
         while pos < end {
             let slize : usize = pos as usize;
+            // debug!("Reading buffer at {:08x}", pos );
             let o_rvalue = self.read_value(&buffer[slize ..]);
-
+            // debug!("Resulting value of read was {:#?}", o_rvalue  );
             if o_rvalue.is_none() {
                 break;
             }
-
             let rvalue : ReadValue = o_rvalue.unwrap();
+
             if self.is_pointer(&rvalue.value)
             {
                 let sink = rvalue.value;
@@ -195,7 +196,7 @@ impl PointerSearch {
     }
 
     pub fn can_read(&self, buffer : &[u8], pos : u64 ) -> bool {
-        return (buffer.len() as u64) < (pos + self.word_sz as u64);
+        return (pos + self.word_sz as u64) < (buffer.len() as u64);
     }
 
     pub fn read_value(&self, buffer : &[u8]) -> Option<ReadValue> {

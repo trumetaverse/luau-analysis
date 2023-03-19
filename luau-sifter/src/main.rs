@@ -130,13 +130,20 @@ fn search_for_pointers(pointer_search : &mut PointerSearch, data_interface : &Da
     }
     let ro_buf = o_ro_buf.unwrap();
 
-    for (_k, mr) in data_interface.ranges.pmem_ranges.iter() {
+    let v_mrs = data_interface.ranges.get_mem_ranges();
+    let mut wv_mrs = Vec::new();
+    for mr in v_mrs.iter() {
+        if mr.perm.find("w").is_some() {
+            wv_mrs.push(mr.clone());
+        }
+    }
+    for mr in wv_mrs.iter() {
         // if !memory_regex.is_match(&mr.name) {
         //     // info!("Skipping {} since it's not heap allocated.",mr.name);
         //     continue;
         // }
         debug!(
-            "Searching Memory Range: {} of {} bytes from starting at vaddr {:08x} and paddr {:08x}.",
+            "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
             mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
         );
         let vaddr:u64 = mr.vaddr_start;
