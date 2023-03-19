@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian, BigEndian};
 use std::borrow::BorrowMut;
 use serde::{Serialize};
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use log::{debug };//, info, error};
+use log::{debug, info };//, info, error};
 
 use mem_analysis::memory::{MemRange, MemRanges};
 
@@ -132,11 +132,11 @@ pub struct PointerSearch {
     //pub offset_type: Option<OffsetType>,
     // pub base_vaddr: u64,
     // pub base_paddr: u64,
-    pub word_sz : u8,
+    pub word_sz : u8,  //in bytes
     pub endian: ENDIAN,
     pub page_size : u64,
     pub page_mask : u64,
-    pub vaddr_alignment: u8,
+    pub vaddr_alignment: u8, // in bytes on boundaries
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -163,13 +163,20 @@ impl PointerSearch {
                 break;
             }
             let rvalue : ReadValue = o_rvalue.unwrap();
-
-            if self.is_pointer(&rvalue.value)
+            let lookup_has_page = self.ptr_lookup.contains_key(&(rvalue.value & self.page_mask));
+            let ptr_range_has_page = self.ptr_ranges.contains_key(&(rvalue.value & self.page_mask));
+            let has_alignment = rvalue.value % self.vaddr_alignment as u64 == 0;
+            // debug!("perform_search_buffer_with_bases: paddr: {:08x} @ pos {:08x} vaddr: *{:08x} = {:08x}", phys_base, pos, pos + virt_base, rvalue.value  );
+            // debug!("perform_search_buffer_with_bases: lookup_has_page: {} ptr_has_page = {} has_alignment = {}", lookup_has_page, ptr_range_has_page, has_alignment  );
+            // if self.is_pointer_with_alignment(&rvalue.value)
+            if has_alignment && lookup_has_page
             {
+                let sink_page  = rvalue.value & self.page_mask;
                 let sink = rvalue.value;
                 let vaddr = pos + virt_base;
                 let paddr = pos + phys_base;
-                let _bal = self.ptr_lookup.get(&sink);
+                let _bal = self.ptr_lookup.get(&sink_page);
+                // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
                 let nm_ptr_range = _bal.unwrap();
                 let mut ptr_range = nm_ptr_range.clone();
 
@@ -187,9 +194,17 @@ impl PointerSearch {
                     digest: "".to_string(),
                 };
                 search_results.push(result);
+
+                ptr_range.add_vpointer(vaddr, sink);
             }
             pos += incr;
         }
+        info!(
+                "Found {} results in perform_search_buffer_with_bases: paddr: {:08x} vaddr: {:08x}", search_results.len(), phys_base, virt_base
+
+            );
+
+
         return Ok(search_results);
 
 
@@ -209,16 +224,16 @@ impl PointerSearch {
             ENDIAN::BIG => {
                 match self.word_sz {
                     16 => Some(BigEndian::read_u16(buffer) as u64),
-                    32 => Some(0 as u64),
-                    64 => Some(0 as u64),
+                    32 => Some(BigEndian::read_u32(buffer) as u64),
+                    64 => Some(BigEndian::read_u64(buffer) as u64),
                     _ => None,
                 }
             },
             ENDIAN::LITTLE => {
                 match self.word_sz {
                     16 => Some(LittleEndian::read_u16(buffer)  as u64),
-                    32 => Some(0 as u64),
-                    64 => Some(0 as u64),
+                    32 => Some(LittleEndian::read_u32(buffer) as u64),
+                    64 => Some(LittleEndian::read_u64(buffer) as u64),
                     _ => None,
                 }
             }
@@ -254,9 +269,9 @@ impl PointerSearch {
 
         let mword_sz : u8 = match word_sz {
             Some(v) => match v  {
-                16 => 16,
-                32 => 32,
-                64 => 64,
+                2 => 2,
+                4 => 4,
+                8 => 8,
                 _ => 32,
             },
             None => 32,
@@ -315,7 +330,10 @@ impl PointerSearch {
     //     return self.add_range_existing(start_vaddr, end_vaddr, r_srcs, r_sinks);
     // }
 
-    pub fn is_pointer(&self, vaddr : &u64 ) -> bool {
+    pub fn is_pointer_with_alignment(&self, vaddr : &u64 ) -> bool {
+        if *vaddr % self.vaddr_alignment as u64 != 0 {
+            return false;
+        }
         return self.contains_pointer_range(vaddr);
     }
 
@@ -329,7 +347,7 @@ impl PointerSearch {
 
     pub fn get_pointer_range_by_vaddr(&self, vaddr : u64 ) -> Option<Box<PointerRange>> {
         let mut cpage = vaddr & self.page_mask;
-        if !self.contains_pointer_range(&cpage) {
+        if !self.ptr_lookup.contains_key(&cpage) {
             return None;
         }
         return Some(self.ptr_lookup.get(&cpage).unwrap().clone());
@@ -346,7 +364,7 @@ impl PointerSearch {
     pub fn add_pointer_range(&mut self, ptr_range : Box<PointerRange>) -> bool {
         let mut cpage = ptr_range.vstart & self.page_mask;
 
-        if self.ptr_ranges.contains_key(&cpage) {
+        if self.ptr_lookup.contains_key(&cpage) {
            return false;
         }
         debug!("Adding the pointer range: {:08x} for {:08x}", ptr_range.vstart, cpage);

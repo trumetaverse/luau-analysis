@@ -296,7 +296,7 @@ fn interactive_loop(spattern: String, epattern: String, o_outputdir : Option<Pat
         }
     }
     debug!("Adding memranges to the pointer search.");
-    ptr_search.add_mem_ranges(&wv_mrs);
+    ptr_search.add_mem_ranges(&v_mrs);
     let pointer_results = search_for_pointers(&mut ptr_search, data_interface);
 
     if o_outputdir.is_some() {
