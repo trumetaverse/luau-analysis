@@ -17,3 +17,6 @@ serde = { version = '1.0.156', features = ["derive"]}
 serde_json = { version = '1.0.94'}
 inquire = { version = "0.6.0", features = ["date"] }
 rangemap = {version = "1.3.0" }
+binread = {version = "2.2.0"}
+multimap = {version = "0.8.3"}
+byteorder = {version = "1.4.3"}
