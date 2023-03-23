@@ -1,8 +1,7 @@
-use std::io::{Read};
-use std::fs::{File, OpenOptions};
 use log::{debug, error};
+use std::fs::{File, OpenOptions};
+use std::io::Read;
 use std::path::PathBuf;
-
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DataBuffer {
@@ -16,10 +15,44 @@ pub struct DataBuffer {
 impl DataBuffer {
     pub fn get_shared_buffer(&self) -> Option<&[u8]> {
         match &self.data {
-            Some(buffer) => Some(&buffer[0 ..]),
-            None => None
+            Some(buffer) => Some(&buffer[0..]),
+            None => None,
         }
     }
+
+    // pub fn get_shared_slice(&self, paddr: u64, size: u64 ) -> Option<&[u8]> {
+    //     if paddr > self.size {
+    //         return None;
+    //     } else if paddr + size < self.size {
+    //         return match &self.data {
+    //             Some(buffer) => Some(&buffer[paddr as usize .. (paddr + size) as usize]),
+    //             None => None
+    //         };
+    //     }
+    //     return None;
+    // }
+
+    pub fn get_shared_slice_from(&self, paddr: u64, size: Option<u64>) -> Option<&[u8]> {
+        if paddr > self.size || self.data.is_none() {
+            return None;
+        }
+
+        if size.is_none() {
+            return match &self.data {
+                Some(buffer) => Some(&buffer[paddr as usize..]),
+                None => None,
+            };
+        }
+        let sz = size.unwrap();
+        if paddr + sz > self.size {
+            return None;
+        }
+        return match &self.data {
+            Some(buffer) => Some(&buffer[paddr as usize..(paddr + sz) as usize]),
+            None => None,
+        };
+    }
+
     pub fn load_data(&mut self) {
         if self.filename.is_none() {
             error!("No filename provided for the backend data buffer.");

@@ -7,7 +7,6 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use log::debug;
 
-
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub enum BackendType {
     File,
@@ -151,9 +150,8 @@ impl Memory for MemRange {
 
 #[derive(Debug, Clone)]
 pub struct MemRanges {
-    pub vmem_ranges: RangeMap<u64, MemRange>,
-    pub pmem_ranges: RangeMap<u64, MemRange>,
-
+    pub vmem_ranges: RangeMap<u64, Box<MemRange>>,
+    pub pmem_ranges: RangeMap<u64, Box<MemRange>>,
     // pub vmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
     // pub pmem_ranges: RangeMap<u64, &'a MemRange<'a>>,
 }
@@ -180,19 +178,35 @@ impl MemRanges {
         // debug!("adding {} to the memranges.", mr);
         let vsz: u64 = if mr.vsize == 0 { 1 } else { mr.vsize };
         let sz: u64 = if mr.size == 0 { 1 } else { mr.size };
+        let my_mr = Box::new(mr.clone());
         self.vmem_ranges
-            .insert(mr.vaddr_start..mr.vaddr_start + vsz, mr.clone());
+            .insert(mr.vaddr_start..mr.vaddr_start + vsz, my_mr.clone());
         self.pmem_ranges
-            .insert(mr.paddr_start..mr.paddr_start + sz, mr);
+            .insert(mr.paddr_start..mr.paddr_start + sz, my_mr.clone());
     }
 
-    pub fn get_paddr_range(&self, paddr: u64) -> Option<MemRange> {
+    pub fn get_paddr_range(&self, paddr: u64) -> Option<Box<MemRange>> {
         return self.pmem_ranges.get(&paddr).cloned();
     }
 
-    pub fn get_vaddr_range(&self, vaddr: u64) -> Option<MemRange> {
+    pub fn get_vaddr_range(&self, vaddr: u64) -> Option<Box<MemRange>> {
         return self.vmem_ranges.get(&vaddr).cloned();
     }
+
+    pub fn get_vaddr_section_name(&self, vaddr: u64) -> Option<String> {
+        return match self.get_vaddr_range(vaddr) {
+            Some(mr) => Some(mr.name.clone()),
+            None => None,
+        };
+    }
+
+    pub fn get_paddr_section_name(&self, paddr: u64) -> Option<String> {
+        return match self.get_paddr_range(paddr) {
+            Some(mr) => Some(mr.name.clone()),
+            None => None,
+        };
+    }
+
     pub fn has_paddr(&self, paddr: u64) -> bool {
         self.pmem_ranges.contains_key(&paddr)
     }
@@ -211,9 +225,9 @@ impl MemRanges {
         mrs
     }
 
-    pub fn get_mem_ranges(&self) -> Vec<MemRange> {
+    pub fn get_mem_ranges(&self) -> Vec<Box<MemRange>> {
         let mut res = Vec::new();
-        for (range, mr) in self.vmem_ranges.iter() {
+        for (_range, mr) in self.vmem_ranges.iter() {
             res.push(mr.clone())
         }
         return res;
