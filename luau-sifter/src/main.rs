@@ -1,8 +1,9 @@
 use clap::Parser;
 use log::{debug, error, info};
 use std::error::Error as StdErr;
-use std::fs::create_dir_all;
+use std::fs::{create_dir_all, File};
 use std::path::{Path, PathBuf};
+use std::io::{BufWriter, Write};
 
 use regex::bytes::Regex;
 use regex::RegexBuilder;
@@ -150,8 +151,7 @@ fn search_regex_all(
     // for r in search_results.iter() {
     //     println!("{:#?}", r);
     // }
-    println!("{}", json!(search_results));
-
+    //
     return search_results;
 }
 
@@ -242,22 +242,53 @@ fn search_regex_ranges(
 }
 
 fn write_search_results(output_filename: PathBuf, search_results: &Vec<SearchResult>) -> () {
-    let wres = std::fs::write(
-        &output_filename,
-        serde_json::to_string_pretty(&search_results).unwrap(),
-    );
-    match wres {
-        Ok(_) => {}
+    let mut o_writer = File::options().read(true).write(true).open(&output_filename);
+    let mut writer = match o_writer {
+        Ok(file) => BufWriter::new(file),
         Err(err) => {
             let msg = format!(
-                "Failed to write data to: {}. {} ",
+                "Failed to open file: {}. {} ",
                 output_filename.display(),
                 err
             );
             error!("{}", msg);
             panic!("{}", msg);
         }
+    };
+
+    for result in search_results.iter() {
+        match writeln!(writer, "{}", json!(result).to_string()) {
+            Ok(_) => {}
+            Err(err) => {
+                let msg = format!(
+                    "Failed to write data to: {}. {} ",
+                    output_filename.display(),
+                    err
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
     }
+    // let wres = std::fs::write(
+    //     &output_filename,
+    //     serde_json::to_string_pretty(&search_results).unwrap(),
+    // );
+    // match writer {
+    //     Ok(_) => {
+    //
+    //
+    //     }
+    //     Err(err) => {
+    //         let msg = format!(
+    //             "Failed to write data to: {}. {} ",
+    //             output_filename.display(),
+    //             err
+    //         );
+    //         error!("{}", msg);
+    //         panic!("{}", msg);
+    //     }
+    // }
 }
 
 fn interactive_loop(
