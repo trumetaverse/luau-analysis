@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::error::Error as StdErr;
 // use multimap::MultiMap;
@@ -9,8 +10,10 @@ use log::{debug, info};
 // use mem_analysis::memory::{MemRange};
 use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
 // use mem_analysis::pointers::{PointerIndex, PointerRange};
-use serde::Serialize;
 use serde_json::json;
+use serde::ser::{Serialize, Serializer, SerializeMap};
+
+use diesel::{Queryable, Selectable};
 
 use crate::search::*;
 
@@ -49,7 +52,10 @@ impl Search for PointerSearch {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+
+// #[derive(Debug, PartialEq, Clone, Queryable, Selectable)]
+// #[diesel(table_name = "pointer_results")]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Comment {
     pub search: String,
     pub paddr: u64,
@@ -57,6 +63,27 @@ pub struct Comment {
     pub sink_vaddr: u64,
     pub sink_paddr: u64,
     pub sink_value: Option<u64>,
+}
+
+impl Serialize for Comment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(6))?;
+        map.serialize_entry("search", &self.search)?;
+        map.serialize_entry("paddr", &format!("{:08x}", self.paddr))?;
+        map.serialize_entry("vaddr", &format!("{:08x}", self.vaddr))?;
+        map.serialize_entry("sink_vaddr", &format!("{:08x}", self.sink_vaddr))?;
+        map.serialize_entry("sink_paddr", &format!("{:08x}", self.sink_paddr))?;
+        if self.sink_value.is_some() {
+            map.serialize_entry("sink_value", &format!("{:08x}", self.sink_value.unwrap() ))?;
+        } else {
+            map.serialize_entry("sink_value", "null")?;
+        }
+
+        map.end()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +103,7 @@ pub struct PointerSearch {
     // pub page_mask : u64,
     // pub vaddr_alignment: u8, // in bytes on boundaries
     pub data_interface: Box<DataInterface>,
+    pub comments : Box<BTreeMap<u64, Box<Comment>>>,
 }
 
 impl PointerSearch {
@@ -242,7 +270,7 @@ impl PointerSearch {
                     }
                 };
 
-                let comment = match o_sink_value {
+                let i_comment = match o_sink_value {
                     Some(value) => Comment {
                         search: "pointer_search".to_string(),
                         vaddr: vaddr,
@@ -263,6 +291,9 @@ impl PointerSearch {
                     // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };
 
+                let comment = Box::new(i_comment);
+                self.comments.insert(vaddr, comment.clone());
+
                 let mut sr = SearchResult::default();
                 sr.boundary_offset = paddr as u64;
                 sr.size = incr;
@@ -277,8 +308,9 @@ impl PointerSearch {
                     None => "".to_string(),
                 };
                 sr.digest = "".to_string();
-                sr.comment = json!(comment).to_string();
+                // sr.comment = json!(comment).to_string();
                 // debug!("{}", sr.comment);
+
                 let result = Box::new(sr);
                 search_results.push(result);
             }
@@ -368,7 +400,7 @@ impl PointerSearch {
                     }
                 };
 
-                let comment = match o_sink_value {
+                let i_comment = match o_sink_value {
                     Some(value) => Comment {
                         search: "pointer_search".to_string(),
                         vaddr: vaddr,
@@ -389,6 +421,9 @@ impl PointerSearch {
                     // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };
 
+                let comment = Box::new(i_comment);
+                self.comments.insert(vaddr, comment.clone());
+
                 let mut sr = SearchResult::default();
                 sr.boundary_offset = paddr as u64;
                 sr.size = incr;
@@ -403,8 +438,9 @@ impl PointerSearch {
                     None => "".to_string(),
                 };
                 sr.digest = "".to_string();
-                sr.comment = json!(&comment).to_string();
+                // sr.comment = json!(&comment).to_string();
                 // debug!("{}", sr.comment);
+                self.comments.insert(vaddr, comment.clone());
                 let result = Box::new(sr);
                 search_results.push(result);
             }
@@ -430,7 +466,16 @@ impl PointerSearch {
             src_to_sinks: Box::new(HashMap::new()),
             sink_values: Box::new(HashMap::new()),
             data_interface: data_interface,
+            comments: Box::new(BTreeMap::new()),
         }
+    }
+
+    pub fn get_comments(&self) -> Vec<Box<Comment>> {
+        let mut comments = Vec::new();
+        for (_, c) in self.comments.iter() {
+            comments.push(c.clone())
+        }
+        return comments;
     }
 
     // pub fn add_range_existing(&mut self, start_vaddr: u64, end_vaddr: u64, range_srcs : Arc<Box<RangePointer>>, range_sinks : Arc<Box<RangePointer>>) -> bool {

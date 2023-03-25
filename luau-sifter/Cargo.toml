@@ -20,3 +20,5 @@ inquire = { version = "0.6.0", features = ["date"] }
 dialoguer = { version  = "0.10.3"}
 mem-analysis = {version = "0.1.0", path = "../mem-analysis"}
 luau-search = {version = "0.1.0", path = "../luau-search"}
+diesel = { version = "2.0.3", features = ["postgres", "sqlite"] }
+dotenvy = { version = "0.15"}

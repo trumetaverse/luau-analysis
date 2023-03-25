@@ -9,7 +9,7 @@ use regex::bytes::Regex;
 use regex::RegexBuilder;
 use serde_json::json;
 
-use luau_search::pointer::PointerSearch;
+use luau_search::pointer::{PointerSearch, Comment as PtrComment};
 use luau_search::regexblock::{RegexBlockSearch, ROBLOX_REGEX_END, ROBLOX_REGEX_START};
 use luau_search::search::{Search, SearchResult};
 use mem_analysis::data_interface::DataInterface;
@@ -242,7 +242,7 @@ fn search_regex_ranges(
 }
 
 fn write_search_results(output_filename: PathBuf, search_results: &Vec<SearchResult>) -> () {
-    let mut o_writer = File::options().read(true).write(true).open(&output_filename);
+    let o_writer = File::create(&output_filename);
     let mut writer = match o_writer {
         Ok(file) => BufWriter::new(file),
         Err(err) => {
@@ -270,25 +270,37 @@ fn write_search_results(output_filename: PathBuf, search_results: &Vec<SearchRes
             }
         };
     }
-    // let wres = std::fs::write(
-    //     &output_filename,
-    //     serde_json::to_string_pretty(&search_results).unwrap(),
-    // );
-    // match writer {
-    //     Ok(_) => {
-    //
-    //
-    //     }
-    //     Err(err) => {
-    //         let msg = format!(
-    //             "Failed to write data to: {}. {} ",
-    //             output_filename.display(),
-    //             err
-    //         );
-    //         error!("{}", msg);
-    //         panic!("{}", msg);
-    //     }
-    // }
+}
+
+fn write_pointer_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<PtrComment>>) -> () {
+    let o_writer = File::create(&output_filename);
+    let mut writer = match o_writer {
+        Ok(file) => BufWriter::new(file),
+        Err(err) => {
+            let msg = format!(
+                "Failed to open file: {}. {} ",
+                output_filename.display(),
+                err
+            );
+            error!("{}", msg);
+            panic!("{}", msg);
+        }
+    };
+
+    for result in ptr_comments.iter() {
+        match writeln!(writer, "{}", json!(result).to_string()) {
+            Ok(_) => {}
+            Err(err) => {
+                let msg = format!(
+                    "Failed to write data to: {}. {} ",
+                    output_filename.display(),
+                    err
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+    }
 }
 
 fn interactive_loop(
@@ -304,6 +316,7 @@ fn interactive_loop(
     );
 
     let mut ptr_search = PointerSearch::new(None, None, data_interface.clone());
+
     // let bv_mrs = data_interface.ranges.get_mem_ranges();
     // let mut wv_mrs = Vec::new();
     // let mut v_mrs = Vec::new();
@@ -315,10 +328,8 @@ fn interactive_loop(
     // }
     // debug!("Adding memranges to the pointer search.");
     // ptr_search.add_box_mem_ranges(&wv_mrs);
-    let pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
 
-    let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), &data_interface);
-    let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), &data_interface);
+
 
     if o_outputdir.is_some() {
         let ofilepath = o_outputdir.as_ref().unwrap();
@@ -335,11 +346,19 @@ fn interactive_loop(
                 panic!("{}", msg);
             }
         };
+
+        let pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
+        let res_comments = ptr_search.get_comments();
+        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
+        write_pointer_comments(ptr_comment_results_filename, &res_comments);
+
+        let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), &data_interface);
+        let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), &data_interface);
+
         let fd_results_filename = ofilepath.join("full_dump_roblox_assets.json");
         write_search_results(fd_results_filename, &full_dump_results);
         let mr_results_filename = ofilepath.join("memory_ranges_roblox_assets.json");
         write_search_results(mr_results_filename, &range_results);
-
         let pr_results_filename = ofilepath.join("pointer_search_results.json");
         write_search_results(pr_results_filename, &pointer_results);
     }

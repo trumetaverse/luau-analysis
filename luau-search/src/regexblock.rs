@@ -7,8 +7,21 @@ use regex::bytes::Regex;
 
 use mem_analysis::data_interface::DataInterface;
 
+use diesel::{Queryable, Selectable};
+
 pub static ROBLOX_REGEX_START: &str = r"(:?<roblox)";
 pub static ROBLOX_REGEX_END: &str = r"(:?</roblox>)";
+
+// #[derive(Debug, PartialEq, Clone, Queryable, Selectable)]
+// #[diesel(table_name = "regexblock_results")]
+#[derive(Debug, PartialEq, Clone)]
+pub struct Comment {
+    pub search: String,
+    pub start_pattern: String,
+    pub end_pattern: String,
+    pub vaddr: u64,
+    pub paddr: u64,
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct RegexBlockSearch {
@@ -19,6 +32,7 @@ pub struct RegexBlockSearch {
     pub offset_type: Option<OffsetType>,
     pub base_vaddr: Option<u64>,
     pub base_paddr: Option<u64>,
+    pub comments: Vec<Comment>
 }
 
 impl Search for RegexBlockSearch {
@@ -111,6 +125,7 @@ impl RegexBlockSearch {
             offset_type: offtype,
             base_vaddr: base_vaddr,
             base_paddr: base_paddr,
+            comments: Vec::new(),
         }
     }
 
@@ -199,6 +214,23 @@ impl RegexBlockSearch {
             pos as usize + start,
             pos as usize + end
         );
+
+        let vaddr = match &self.base_vaddr {
+            Some(v) => *v + start as u64,
+            None => start as u64,
+        };
+
+        let paddr = match &self.base_paddr {
+            Some(v) => *v + start as u64,
+            None => start as u64,
+        };
+        let comment = Comment{search: "regexblock".to_string(),
+            start_pattern: self.start_pattern.to_string(),
+            end_pattern: self.end_pattern.to_string(),
+            vaddr: vaddr,
+            paddr: paddr};
+
+        self.comments.push(comment);
         // let mut rdata: Vec<u8> = Vec::with_capacity(end - start);
         // rdata.copy_from_slice(&buffer[start..end]);
         let mut sr = SearchResult {
@@ -207,14 +239,8 @@ impl RegexBlockSearch {
             // data: rdata,
             start_pattern: self.start_pattern.to_string(),
             end_pattern: self.end_pattern.to_string(),
-            vaddr: match &self.base_vaddr {
-                Some(v) => *v + start as u64,
-                None => start as u64,
-            },
-            paddr: match &self.base_paddr {
-                Some(v) => *v + start as u64,
-                None => start as u64,
-            },
+            vaddr: vaddr,
+            paddr: paddr,
             section_name: "".to_string(),
             digest: self.compute_buffer_digest(&buffer[start..end]).clone(),
             comment: "".to_string(),
@@ -302,20 +328,31 @@ impl RegexBlockSearch {
             );
             //let mut rdata: Vec<u8> = Vec::with_capacity(end - start);
             //rdata.copy_from_slice(&buffer[start..end]);
+
+            let vaddr = match &self.base_vaddr {
+                Some(v) => *v + start as u64,
+                None => start as u64,
+            };
+
+            let paddr = match &self.base_paddr {
+                Some(v) => *v + start as u64,
+                None => start as u64,
+            };
+            let comment = Comment{    search: "regexblock".to_string(),
+                start_pattern: self.start_pattern.to_string(),
+                end_pattern: self.end_pattern.to_string(),
+                vaddr: vaddr,
+                paddr: paddr};
+
+            self.comments.push(comment);
             let mut sr = SearchResult {
                 boundary_offset: start as u64,
                 size: end as u64 - start as u64,
                 // data: rdata,
                 start_pattern: self.start_pattern.to_string(),
                 end_pattern: self.end_pattern.to_string(),
-                vaddr: match &self.base_vaddr {
-                    Some(v) => *v + start as u64,
-                    None => start as u64,
-                },
-                paddr: match &self.base_paddr {
-                    Some(v) => *v + start as u64,
-                    None => start as u64,
-                },
+                vaddr: vaddr,
+                paddr: paddr,
                 section_name: "".to_string(),
                 digest: self.compute_buffer_digest(&buffer[start..end]).clone(),
                 comment: "".to_string(),
