@@ -60,8 +60,12 @@ pub struct Comment {
     pub search: String,
     pub paddr: u64,
     pub vaddr: u64,
+    pub paddr_base: u64,
+    pub vaddr_base: u64,
     pub sink_vaddr: u64,
     pub sink_paddr: u64,
+    pub sink_vaddr_base: u64,
+    pub sink_paddr_base: u64,
     pub sink_value: Option<u64>,
 }
 
@@ -73,9 +77,13 @@ impl Serialize for Comment {
         let mut map = serializer.serialize_map(Some(6))?;
         map.serialize_entry("search", &self.search)?;
         map.serialize_entry("paddr", &format!("{:08x}", self.paddr))?;
+        map.serialize_entry("paddr_base", &format!("{:08x}", self.paddr_base))?;
         map.serialize_entry("vaddr", &format!("{:08x}", self.vaddr))?;
+        map.serialize_entry("vaddr_base", &format!("{:08x}", self.vaddr_base))?;
         map.serialize_entry("sink_vaddr", &format!("{:08x}", self.sink_vaddr))?;
         map.serialize_entry("sink_paddr", &format!("{:08x}", self.sink_paddr))?;
+        map.serialize_entry("sink_vaddr_base", &format!("{:08x}", self.sink_vaddr_base))?;
+        map.serialize_entry("sink_paddr_base", &format!("{:08x}", self.sink_paddr_base))?;
         if self.sink_value.is_some() {
             map.serialize_entry("sink_value", &format!("{:08x}", self.sink_value.unwrap() ))?;
         } else {
@@ -195,8 +203,8 @@ impl PointerSearch {
             return Ok(search_results);
         }
         let _end = o_end.unwrap();
-
-        let virt_base = if svaddr != o_vaddr_base.unwrap() {
+        let vaddr_base = o_vaddr_base.unwrap();
+        let virt_base = if svaddr != vaddr_base {
             svaddr % alignment
         } else {
             svaddr
@@ -242,7 +250,9 @@ impl PointerSearch {
             let has_alignment = sink % alignment == 0;
 
             if has_alignment && lookup_has_page {
-                let sink_paddr = di.get_paddr_base_from_vaddr(&sink).unwrap();
+                let sink_paddr = di.convert_vaddr_to_paddr(&sink).unwrap();
+                let sink_paddr_base = di.get_paddr_base_from_vaddr(&sink).unwrap();
+                let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
 
                 let _bal = di.vmem_info.ptr_lookup.get(&sink_page);
                 // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
@@ -278,6 +288,10 @@ impl PointerSearch {
                         sink_paddr: sink_paddr,
                         sink_vaddr: sink,
                         sink_value: Some(value),
+                        sink_vaddr_base: sink_vaddr_base,
+                        sink_paddr_base: sink_paddr_base,
+                        paddr_base: phys_base,
+                        vaddr_base: vaddr_base
                     },
                     // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
                     None => Comment {
@@ -287,6 +301,10 @@ impl PointerSearch {
                         sink_paddr: sink_paddr,
                         sink_vaddr: sink,
                         sink_value: None,
+                        sink_vaddr_base: sink_vaddr_base,
+                        sink_paddr_base: sink_paddr_base,
+                        paddr_base: phys_base,
+                        vaddr_base: vaddr_base
                     },
                     // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };
@@ -345,6 +363,8 @@ impl PointerSearch {
         let mut pos = 0;
         let end: u64 = buffer.len() as u64;
         let page_mask = self.data_interface.vmem_info.page_mask;
+        let vaddr_base = self.data_interface.get_vaddr_base_from_vaddr(&virt_base).unwrap();
+        let paddr_base = self.data_interface.get_paddr_base_from_vaddr(&virt_base).unwrap();
 
         while pos < end {
             let vaddr = pos + virt_base;
@@ -372,8 +392,10 @@ impl PointerSearch {
             if has_alignment && lookup_has_page {
                 let sink_paddr = self
                     .data_interface
-                    .get_paddr_base_from_vaddr(&sink)
+                    .convert_vaddr_to_paddr(&sink)
                     .unwrap();
+                let sink_paddr_base = self.data_interface.get_paddr_base_from_vaddr(&sink).unwrap();
+                let sink_vaddr_base = self.data_interface.get_vaddr_base_from_vaddr(&sink).unwrap();
                 let _bal = self.data_interface.vmem_info.ptr_lookup.get(&sink_page);
                 // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
                 // {   // Update data interface pointer ranges
@@ -408,6 +430,10 @@ impl PointerSearch {
                         sink_paddr: sink_paddr,
                         sink_vaddr: sink,
                         sink_value: Some(value),
+                        sink_vaddr_base: sink_vaddr_base,
+                        sink_paddr_base: sink_paddr_base,
+                        paddr_base: paddr_base,
+                        vaddr_base: vaddr_base
                     },
                     // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
                     None => Comment {
@@ -417,6 +443,10 @@ impl PointerSearch {
                         sink_paddr: sink_paddr,
                         sink_vaddr: sink,
                         sink_value: None,
+                        sink_vaddr_base: sink_vaddr_base,
+                        sink_paddr_base: sink_paddr_base,
+                        paddr_base: paddr_base,
+                        vaddr_base: vaddr_base
                     },
                     // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };

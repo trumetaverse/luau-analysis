@@ -237,7 +237,7 @@ fn search_regex_ranges(
     // for r in search_results.iter() {
     //     println!("{:#?}", r);
     // }
-    println!("{}", json!(search_results));
+    // println!("{}", json!(search_results));
     return search_results;
 }
 
@@ -269,6 +269,7 @@ fn write_search_results(output_filename: PathBuf, search_results: &Vec<SearchRes
                 panic!("{}", msg);
             }
         };
+        writer.flush().unwrap();
     }
 }
 
@@ -289,7 +290,7 @@ fn write_pointer_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<PtrCo
 
     for result in ptr_comments.iter() {
         match writeln!(writer, "{}", json!(result).to_string()) {
-            Ok(_) => {}
+            Ok(_) => {writer.flush().unwrap();}
             Err(err) => {
                 let msg = format!(
                     "Failed to write data to: {}. {} ",
@@ -359,8 +360,8 @@ fn interactive_loop(
         write_search_results(fd_results_filename, &full_dump_results);
         let mr_results_filename = ofilepath.join("memory_ranges_roblox_assets.json");
         write_search_results(mr_results_filename, &range_results);
-        let pr_results_filename = ofilepath.join("pointer_search_results.json");
-        write_search_results(pr_results_filename, &pointer_results);
+        // let pr_results_filename = ofilepath.join("pointer_search_results.json");
+        // write_search_results(pr_results_filename, &pointer_results);
     }
     Ok(())
 }

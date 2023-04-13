@@ -71,6 +71,17 @@ impl VMemInfo {
         return None;
     }
 
+    fn convert_vaddr_to_paddr(&self, vaddr: &u64) -> Option<u64> {
+        let o_vaddr_base = self.get_vaddr_base(vaddr);
+        if o_vaddr_base.is_none() {
+            return None;
+        }
+        let vaddr_base = o_vaddr_base.unwrap();
+        let paddr_base = self.get_paddr_base_from_vaddr(&vaddr_base).unwrap();
+        return Some(paddr_base + (vaddr-vaddr_base))
+
+    }
+
     fn get_page(&self, addr: &u64) -> u64 {
         return addr & self.page_mask;
     }
@@ -191,6 +202,9 @@ impl DataInterface {
     //     return self.vmem_info.clone();
     // }
 
+    pub fn convert_vaddr_to_paddr(&self, vaddr: &u64) -> Option<u64> {
+        return self.vmem_info.convert_vaddr_to_paddr(vaddr)
+    }
     pub fn get_vaddr_section_name(&self, vaddr: u64) -> Option<String> {
         return self.mem_ranges.get_vaddr_section_name(vaddr);
     }
@@ -198,7 +212,9 @@ impl DataInterface {
     pub fn get_paddr_section_name(&self, paddr: u64) -> Option<String> {
         return self.mem_ranges.get_paddr_section_name(paddr);
     }
-
+    pub fn get_vaddr_base_from_vaddr(&self, vaddr: &u64) -> Option<u64> {
+        return self.get_vaddr_base(vaddr);
+    }
     pub fn get_vaddr_base(&self, vaddr: &u64) -> Option<u64> {
         return self.vmem_info.get_vaddr_base(vaddr);
     }
