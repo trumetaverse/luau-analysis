@@ -14,7 +14,8 @@ use log::{debug, info};
 use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
 // use mem_analysis::pointers::{PointerIndex, PointerRange};
 use serde_json::json;
-use serde::ser::{Serialize, Serializer, SerializeMap, Deserialize};
+use serde::ser::{Serialize, Serializer, SerializeMap};
+use serde::Deserialize;
 
 use diesel::{Queryable, Selectable};
 
@@ -105,8 +106,8 @@ impl Serialize for Comment {
     }
 }
 
-trait LuaPage {
-    fn load(buffer: &[u8], di: &DataInterface) -> Result<Self, Error>;
+trait LuaPage : Sized {
+    fn load(buffer: &[u8], di: &DataInterface) -> Result<Self, dyn StdErr> where Self: Sized;
     fn get_prev(&self) -> u64;
     fn get_next(&self) -> u64;
     fn get_gcolistprev(&self) -> u64;
@@ -129,12 +130,12 @@ trait LuaPage {
         return LuaPage::get_size(4 as u8);
     }
 
-    fn get_le_deserializer() -> dyn bincode::Options {
+    fn get_le_deserializer() -> dyn bincode::Options <Endian = bincode::LE, Limit = bincode::NoLimit, IntEncoding = bincode::VarInt, Trailing = bincode::AllowTrailing> {
         return Options::new()
             .with_endian(bincode::config::LittleEndian);
     }
 
-    fn get_be_deserializer() -> dyn bincode::Options {
+    fn get_be_deserializer() -> dyn bincode::Options <Endian = bincode::BE, Limit = bincode::NoLimit, IntEncoding = bincode::VarInt, Trailing = bincode::AllowTrailing>{
         return Options::new()
             .with_endian(bincode::config::BigEndian);
     }
@@ -202,7 +203,7 @@ struct LuaPageX32 {
 
 impl LuaPage for LuaPageX32 {
 
-    fn load(buffer: &[u8], data_interface: Box<DataInterface>) -> Result<Self, Error> {
+    fn load(buffer: &[u8], data_interface: Box<DataInterface>) -> Result<Self, dyn StdErr> {
         if buffer.len() < LuaPage::get_x32_size() {
             return Err();
         }
@@ -267,7 +268,7 @@ struct LuaPageX64 {
 }
 
 impl LuaPage for LuaPageX64 {
-    fn load(buffer: &[u8], data_interface: Box<DataInterface>) -> Result<Self, Error> {
+    fn load(buffer: &[u8], data_interface: Box<DataInterface>) -> Result<Self, dyn StdErr> {
         if buffer.len() < LuaPage::get_x32_size() {
             return Err();
         }
