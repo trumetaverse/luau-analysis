@@ -506,25 +506,41 @@ impl LuaPageSearch {
             return Ok(search_results);
         }
         let vaddr_buf = o_vaddr_buf.unwrap();
-
-
+        let hard_coded_page_value = 0x3fe8 as u64;
+        let page_size_fld_offset = 16 as u64;
         while pos + incr - 1 < vaddr_buf.len() as u64 {
             let vaddr = pos + virt_base;
             let paddr = pos + phys_base;
             // debug!("Reading buffer at {:08x}", pos );
-            let o_lp = LuaPageX32::load(&vaddr_buf[pos as usize ..], self.data_interface.clone());
-            if o_lp.is_none() {
+
+            if pos + hard_coded_page_value > vaddr_buf.len() as u64 {
+                break;
+            }
+
+            let value = self.data_interface.read_u32(&vaddr_buf[pos as usize ..], None).unwrap();
+            if value as u64 != hard_coded_page_value {
                 pos += incr;
                 continue;
             }
 
+            let lp_start_pos = pos - page_size_fld_offset;
+            let o_lp = LuaPageX32::load(&vaddr_buf[ lp_start_pos as usize ..], self.data_interface.clone());
+            if o_lp.is_none() {
+                pos += incr;
+                continue;
+            }
+            info!(
+            "Scanning memory: paddr: {:08x} vaddr: {:08x}",
+            paddr-page_size_fld_offset,
+            vaddr-page_size_fld_offset
+        );
             let lp = o_lp.unwrap();
             if ! lp.is_valid_header(&self.data_interface, self.max_block_size, self.page_size) {
                 pos += incr;
                 continue;
             }
 
-            let i_comment = lp.get_comment(&vaddr, &paddr, &virt_base, &phys_base);
+            let i_comment = lp.get_comment(&(vaddr-page_size_fld_offset), &(paddr-page_size_fld_offset), &virt_base, &phys_base);
             let comment = Box::new(i_comment);
             self.comments.insert(vaddr, comment.clone());
 

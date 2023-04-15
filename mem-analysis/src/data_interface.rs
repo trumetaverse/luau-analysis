@@ -401,7 +401,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<i64>() < buffer.len() {
+        if buffer.len() < size_of::<i64>() {
             return None;
         }
 
@@ -418,7 +418,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<u64>() < buffer.len() {
+        if buffer.len() < size_of::<i64>() {
             return None;
         }
 
@@ -434,7 +434,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<i32>() < buffer.len() {
+        if buffer.len() < size_of::<i32>() {
             return None;
         }
 
@@ -451,7 +451,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<u32>() < buffer.len() {
+        if buffer.len() < size_of::<u32>() {
             return None;
         }
 
@@ -466,7 +466,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<i64>() < buffer.len() {
+        if buffer.len() < size_of::<u16>() {
             return None;
         }
 
@@ -482,7 +482,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<u16>() < buffer.len() {
+        if buffer.len() < size_of::<u16>() {
             return None;
         }
 
@@ -498,7 +498,7 @@ impl DataInterface {
             let endian = o_endian.unwrap();
         }
 
-        if size_of::<u8>() < buffer.len() {
+        if buffer.len() < size_of::<u8>() {
             return None;
         }
 
@@ -509,7 +509,7 @@ impl DataInterface {
         if o_endian.is_some() {
             let endian = o_endian.unwrap();
         }
-        if size_of::<u8>() < buffer.len() {
+        if buffer.len() < size_of::<u8>() {
             return None;
         }
         return Some(buffer[0] as i8);

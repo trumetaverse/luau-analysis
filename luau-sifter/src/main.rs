@@ -401,10 +401,10 @@ fn interactive_loop(
             }
         };
 
-        let _pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
-        let res_comments = ptr_search.get_comments();
-        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
-        write_pointer_comments(ptr_comment_results_filename, &res_comments);
+        // let _pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
+        // let res_comments = ptr_search.get_comments();
+        // let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
+        // write_pointer_comments(ptr_comment_results_filename, &res_comments);
 
         let _lua_page = search_for_luapages(&mut lp_search, &data_interface);
         let lp_res_comments = lp_search.get_comments();
