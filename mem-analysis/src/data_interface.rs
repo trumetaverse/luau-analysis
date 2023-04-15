@@ -5,6 +5,7 @@ use crate::radare::RadareMemoryInfos;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::mem::{size_of};
 
 use log::debug;
 use serde;
@@ -313,6 +314,17 @@ impl DataInterface {
         return (pos + size) < (buffer.len() as u64);
     }
 
+    pub fn can_read_buffer_at(&self, vaddr: u64, size: u64) -> bool {
+        let o_mr = self.mem_ranges.get_vaddr_range(vaddr);
+        if o_mr.is_none() {
+            return false;
+        }
+        let mr: Box<MemRange> = o_mr.unwrap().clone();
+        let vaddr_base = mr.vaddr_start;
+        let vaddr_end = mr.vaddr_start + mr.vsize;
+        return vaddr_base <= vaddr && vaddr + size < vaddr_end;
+    }
+
     pub fn read_word_size_value(&self, buffer: &[u8]) -> Option<ReadValue> {
         let size = self.vmem_info.word_sz as u64;
         // debug!("Reading {} bytes from buf[{:08x}]", size, 0  );
@@ -381,5 +393,125 @@ impl DataInterface {
         }
         let mr: Box<MemRange> = o_mr.unwrap().clone();
         return Some(mr.vaddr_start + mr.vsize);
+    }
+
+    pub fn read_i64(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i64> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<i64>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_i64(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_i64(buffer)),
+            };
+        }
+
+
+    pub fn read_u64(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u64> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<u64>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_u64(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_u64(buffer)),
+        };
+    }
+
+    pub fn read_i32(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i32> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<i32>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_i32(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_i32(buffer)),
+        };
+    }
+
+
+    pub fn read_u32(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u32> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<u32>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_u32(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_u32(buffer)),
+        };
+    }
+    pub fn read_i16(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i64> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<i64>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_i64(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_i64(buffer)),
+        };
+    }
+
+    pub fn read_u16(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u16> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<u16>() < buffer.len() {
+            return None;
+        }
+
+        return match endian {
+            ENDIAN::BIG => Some(BigEndian::read_u16(buffer)),
+            ENDIAN::LITTLE => Some(LittleEndian::read_u16(buffer)),
+        };
+    }
+
+    pub fn read_u8(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u8> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+
+        if size_of::<u8>() < buffer.len() {
+            return None;
+        }
+
+        return Some(buffer[0]);
+    }
+    pub fn read_i8(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i8> {
+        let mut endian = self.vmem_info.endian.clone();
+        if o_endian.is_some() {
+            let endian = o_endian.unwrap();
+        }
+        if size_of::<u8>() < buffer.len() {
+            return None;
+        }
+        return Some(buffer[0] as i8);
     }
 }
