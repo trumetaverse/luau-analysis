@@ -18,3 +18,4 @@ rangemap = {version = "1.3.0" }
 multimap = {version = "0.8.3"}
 byteorder = {version = "1.4.3"}
 diesel = { version = "2.0.3", features = ["postgres", "sqlite"] }
+bincode = {version = "1.3.3"}

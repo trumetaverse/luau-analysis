@@ -10,6 +10,7 @@ use regex::RegexBuilder;
 use serde_json::json;
 
 use luau_search::pointer::{PointerSearch, Comment as PtrComment};
+use luau_search::luapage::{LuaPageSearch, Comment as LPComment};
 use luau_search::regexblock::{RegexBlockSearch, ROBLOX_REGEX_END, ROBLOX_REGEX_START};
 use luau_search::search::{Search, SearchResult};
 use mem_analysis::data_interface::DataInterface;
@@ -175,6 +176,26 @@ fn search_for_pointers(
     return search_results;
 }
 
+fn search_for_luapages(
+    lp_search: &mut LuaPageSearch,
+    data_interface: &DataInterface,
+) -> Vec<SearchResult> {
+    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
+    debug!("Searching Memory Ranges pointer.");
+    let mut search_results: Vec<SearchResult> = Vec::new();
+    let r_search_results = lp_search.search_interface(data_interface);
+    match r_search_results {
+        Ok(results) => {
+            for result in results.iter() {
+                search_results.push(*result.clone());
+            }
+        }
+        Err(_) => {}
+    }
+    info!("Found {} results.", search_results.len());
+    return search_results;
+}
+
 fn search_regex_ranges(
     spattern: String,
     epattern: String,
@@ -304,6 +325,37 @@ fn write_pointer_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<PtrCo
     }
 }
 
+fn write_luapage_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<LPComment>>) -> () {
+    let o_writer = File::create(&output_filename);
+    let mut writer = match o_writer {
+        Ok(file) => BufWriter::new(file),
+        Err(err) => {
+            let msg = format!(
+                "Failed to open file: {}. {} ",
+                output_filename.display(),
+                err
+            );
+            error!("{}", msg);
+            panic!("{}", msg);
+        }
+    };
+
+    for result in ptr_comments.iter() {
+        match writeln!(writer, "{}", json!(result).to_string()) {
+            Ok(_) => {writer.flush().unwrap();}
+            Err(err) => {
+                let msg = format!(
+                    "Failed to write data to: {}. {} ",
+                    output_filename.display(),
+                    err
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+    }
+}
+
 fn interactive_loop(
     spattern: String,
     epattern: String,
@@ -318,6 +370,7 @@ fn interactive_loop(
 
     let mut ptr_search = PointerSearch::new(None, None, data_interface.clone());
 
+    let mut lp_search = LuaPageSearch::new(None, None, data_interface.clone(), None, None);
     // let bv_mrs = data_interface.ranges.get_mem_ranges();
     // let mut wv_mrs = Vec::new();
     // let mut v_mrs = Vec::new();
@@ -348,10 +401,15 @@ fn interactive_loop(
             }
         };
 
-        let pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
+        let _pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
         let res_comments = ptr_search.get_comments();
         let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
         write_pointer_comments(ptr_comment_results_filename, &res_comments);
+
+        let _lua_page = search_for_luapages(&mut lp_search, &data_interface);
+        let lp_res_comments = lp_search.get_comments();
+        let lp_comment_results_filename = ofilepath.join("luapage_comments.json");
+        write_luapage_comments(lp_comment_results_filename, &lp_res_comments);
 
         let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), &data_interface);
         let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), &data_interface);
