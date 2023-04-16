@@ -271,11 +271,34 @@ impl LuaPageX32 {
     }
 
     fn is_valid_header(&self, di: &DataInterface, o_max_block_size : Option<u32>, o_page_size:Option<u32>) -> bool {
+        // debug!(
+        //     "di.vmem_info.alignment = {}",
+        //     di.vmem_info.alignment
+        // );
+        // debug!(
+        //     "Lua Pages Constraints: (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev())) = {}",
+        //     (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev()))
+        // );
+        //
+        // debug!(
+        //     "Lua Pages Constraints:   (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next())) = {}",
+        //       (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next()))
+        // );
+        //
+        // debug!(
+        //     "Lua Pages Constraints:     (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev())) = {}",
+        //         (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev()))
+        // );
+        //
+        // debug!(
+        //     "Lua Pages Constraints:     (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext())) = {}",
+        //         (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext()))
+        // );
 
-        let basic_constraints = di.vmem_info.ptr_lookup.contains_key(&self.get_prev()) &&
-            di.vmem_info.ptr_lookup.contains_key(&self.get_next()) &&
-            di.vmem_info.ptr_lookup.contains_key(&self.get_gcolistprev()) &&
-            di.vmem_info.ptr_lookup.contains_key(&self.get_gcolistnext()) &&
+        let basic_constraints = (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev())) &&
+            (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next())) &&
+            (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev())) &&
+            (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext())) &&
             self.busy_blocks >= 0;
 
         let block_size_check = match o_max_block_size {
@@ -287,7 +310,10 @@ impl LuaPageX32 {
             Some(psz) => self.get_page_size() == psz as i32,
             None => true,
         };
-
+        // debug!(
+        //     "Lua Pages Constraints: basic-constraints {} block-size-check {} page-size-check {}",
+        //     basic_constraints, block_size_check, page_size_check
+        // );
         return basic_constraints && block_size_check && page_size_check;
     }
 }
@@ -522,24 +548,17 @@ impl LuaPageSearch {
                 pos += incr;
                 continue;
             }
-
             let lp_start_pos = pos - page_size_fld_offset;
             let o_lp = LuaPageX32::load(&vaddr_buf[ lp_start_pos as usize ..], self.data_interface.clone());
             if o_lp.is_none() {
                 pos += incr;
                 continue;
             }
-            info!(
-            "Scanning memory: paddr: {:08x} vaddr: {:08x}",
-            paddr-page_size_fld_offset,
-            vaddr-page_size_fld_offset
-        );
             let lp = o_lp.unwrap();
-            if ! lp.is_valid_header(&self.data_interface, self.max_block_size, self.page_size) {
+            if ! lp.is_valid_header(&self.data_interface, self.max_block_size, Some(hard_coded_page_value as u32)) {
                 pos += incr;
                 continue;
             }
-
             let i_comment = lp.get_comment(&(vaddr-page_size_fld_offset), &(paddr-page_size_fld_offset), &virt_base, &phys_base);
             let comment = Box::new(i_comment);
             self.comments.insert(vaddr, comment.clone());
