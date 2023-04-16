@@ -410,7 +410,7 @@ fn interactive_loop(
         let res_comments = ptr_search.get_comments();
         let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
         write_pointer_comments(ptr_comment_results_filename, &res_comments);
-        
+
         let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), &data_interface);
         let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), &data_interface);
 

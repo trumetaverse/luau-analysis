@@ -6,6 +6,15 @@ use byteorder::{BigEndian, ByteOrder, LittleEndian};
 // use serde::{Serialize};
 // use std::fmt::{Display, Formatter, Result as FmtResult};
 use log::{debug, info};
+use crossbeam::{
+    atomic::AtomicCell,
+    channel::{unbounded, Receiver, Sender},
+    queue::ArrayQueue,
+    sync::WaitGroup,
+};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use mem_analysis::memory::{MemRange};
 
 // use mem_analysis::memory::{MemRange};
 use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
@@ -115,6 +124,82 @@ pub struct PointerSearch {
 }
 
 impl PointerSearch {
+
+    pub fn perform_analysis(&self, mr: Box<MemRange>, di: Box<DataInterface>, mut shared_results : Arc<Mutex<AtomicCell<Vec<Box<SearchResult>>>>> ) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+
+        debug!(
+            "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
+            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
+        );
+        let vaddr: u64 = mr.vaddr_start;
+        let _paddr: u64 = mr.paddr_start;
+        let _size: u64 = mr.size;
+        let r_results = self.perform_search_with_vaddr_start(&*di, vaddr);
+        let mut results: Vec<Box<SearchResult>> = r_results.unwrap();
+        for r in results.iter_mut() {
+            r.section_name = mr.name.clone();
+        }
+        debug!(
+                "Found {} results in {}.",
+                results.len(),
+                mr.name,
+            );
+        for r in results.iter_mut() {
+            r.section_name = mr.name.clone();
+        }
+
+            let owned_results = match Arc::try_unwrap(shared_results) {
+                Ok(inner) => inner.into_inner(),
+                Err(arc_ref) => arc_ref.lock().unwrap().into_inner(),
+            };
+            owned_results.append(&mut results.clone());
+        //     shared_results.lock().unwrap().with(|search_results| {
+        //     search_results.append(&mut results);
+        // });
+        })
+    }
+
+    pub fn perform_search_with_interface_mt(
+        &mut self,
+        di: &DataInterface,
+    ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+        let mut thread_handles_ac: Vec<thread::JoinHandle<()>> = Vec::new();
+        let mut shared_results : Arc<Mutex<AtomicCell<Vec<Box<SearchResult>>>>> = Arc::new(Mutex::new(AtomicCell::new(Vec::new())));
+        let mut search_results: Vec<Box<SearchResult>> = Vec::new();
+
+        let v_mrs = self.data_interface.mem_ranges.get_mem_ranges();
+        let mut wv_mrs = Vec::new();
+        for mr in v_mrs.iter() {
+            if mr.perm.find("w").is_some() {
+                wv_mrs.push(mr.clone());
+            }
+        }
+
+        for mr in wv_mrs.iter() {
+            debug!(
+            "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
+            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
+        );
+            thread_handles_ac.push(self.perform_analysis(mr.clone(), self.data_interface.clone(), shared_results.clone()));
+        }
+        thread_handles_ac
+            .into_iter()
+            .for_each(|th| th.join().expect("can't join thread"));
+
+
+        let owned_results = match Arc::try_unwrap(shared_results) {
+            Ok(inner) => inner.into_inner(),
+            Err(arc_ref) => arc_ref.lock().unwrap().into_inner(),
+        };
+        search_results.append(&mut owned_results.clone());
+        // shared_results.lock().unwrap().with(|ret_search_results| {
+        //     search_results.append(&mut ret_search_results);
+        // });
+
+        info!("Found {} results.", search_results.len());
+        return Ok(search_results);
+    }
     pub fn perform_search_with_interface(
         &mut self,
         di: &DataInterface,
