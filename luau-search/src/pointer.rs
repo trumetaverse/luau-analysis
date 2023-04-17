@@ -12,9 +12,11 @@ use crossbeam::{
     queue::ArrayQueue,
     sync::WaitGroup,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+
 use std::thread;
 use mem_analysis::memory::{MemRange};
+
 
 // use mem_analysis::memory::{MemRange};
 use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
@@ -49,7 +51,7 @@ impl Search for PointerSearch {
         &mut self,
         di: &DataInterface,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
-        return self.perform_search_with_interface(di);
+        return self.perform_search_with_interface_mt(di);
     }
     fn search_interface_with_bases(
         &mut self,
@@ -123,10 +125,177 @@ pub struct PointerSearch {
     pub comments : Box<BTreeMap<u64, Box<Comment>>>,
 }
 
-impl PointerSearch {
+pub fn perform_search_with_vaddr_start(
+    di: &DataInterface,
+    svaddr: u64,
+    comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
+) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+    // let mut comments:Box<BTreeMap<u64, Box<Comment>>> = Box::new(BTreeMap::new());
+    let mut search_results: Vec<Box<SearchResult>> = Vec::new();
+    let alignment: u64 = if di.vmem_info.alignment == 0 {
+        1
+    } else {
+        di.vmem_info.alignment.into()
+    };
+    let incr = if di.vmem_info.word_sz == 0 {
+        1
+    } else {
+        di.vmem_info.word_sz.into()
+    };
+    let page_mask = di.vmem_info.page_mask;
 
-    pub fn perform_analysis(&self, mr: Box<MemRange>, di: Box<DataInterface>, mut shared_results : Arc<Mutex<AtomicCell<Vec<Box<SearchResult>>>>> ) -> thread::JoinHandle<()> {
-        thread::spawn(move || {
+    let mut pos: u64 = 0;
+
+    let o_vaddr_base = di.get_vaddr_base(&svaddr);
+    if o_vaddr_base.is_none() {
+        // debug!("Failed to find the range for vaddr: {:08x}", vaddr  );
+        return Ok(search_results);
+    }
+
+    let phys_base = di.get_paddr_base_from_vaddr(&svaddr).unwrap();
+
+    let o_end = di.get_vaddr_end(svaddr);
+    if o_end.is_none() {
+        return Ok(search_results);
+    }
+    let _end = o_end.unwrap();
+    let vaddr_base = o_vaddr_base.unwrap();
+    let virt_base = if svaddr != vaddr_base {
+        svaddr % alignment
+    } else {
+        svaddr
+    };
+    // there may be a 0-sized buffer in which case there is nothing to return
+    // so we need to accomodate the empty array gracefully here
+    let o_vaddr_buf = di.shared_buffer_vaddr(virt_base);
+    if o_vaddr_buf.is_none() {
+        return Ok(search_results);
+    }
+    let vaddr_buf = o_vaddr_buf.unwrap();
+    let endian = &di.vmem_info.endian;
+    let read_value = |buffer: &[u8]| -> u64 {
+        match endian {
+            ENDIAN::BIG => match incr {
+                1 => <u8 as TryInto<u64>>::try_into(buffer[0]).unwrap() as u64,
+                2 => BigEndian::read_u16(buffer) as u64,
+                4 => BigEndian::read_u32(buffer) as u64,
+                8 => BigEndian::read_u64(buffer) as u64,
+                16 => BigEndian::read_u128(buffer) as u64,
+                _ => 0,
+            },
+            ENDIAN::LITTLE => match incr {
+                1 => buffer[0] as u64,
+                2 => LittleEndian::read_u16(buffer) as u64,
+                4 => LittleEndian::read_u32(buffer) as u64,
+                8 => LittleEndian::read_u64(buffer) as u64,
+                16 => LittleEndian::read_u128(buffer) as u64,
+                _ => 0,
+            },
+        }
+    };
+
+    while pos + incr - 1 < vaddr_buf.len() as u64 {
+        let vaddr = pos + virt_base;
+        let paddr = pos + phys_base;
+        // debug!("Reading buffer at {:08x}", pos );
+
+        let sink = read_value(&vaddr_buf[pos as usize..]);
+        let sink_page = sink & page_mask;
+        let lookup_has_page = di.vmem_info.ptr_lookup.contains_key(&sink_page);
+
+        let has_alignment = sink % alignment == 0;
+
+        if has_alignment && lookup_has_page {
+            let sink_paddr = di.convert_vaddr_to_paddr(&sink).unwrap();
+            let sink_paddr_base = di.get_paddr_base_from_vaddr(&sink).unwrap();
+            let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
+
+            let _bal = di.vmem_info.ptr_lookup.get(&sink_page);
+            // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
+            // {   // Update data interface pointer ranges
+            //     let nm_ptr_range = _bal.unwrap();
+            //     let mut ptr_range = nm_ptr_range.clone();
+            //     ptr_range.add_vpointer(vaddr, sink);
+            //     let ptr_range:&mut Arc<Box<PointerRange>> = &mut (.unwrap());
+            // }
+            let o_ptr_value = di.read_word_size_value_at_vaddr(sink);
+            let o_sink_value = match o_ptr_value {
+                Some(x) => {
+                    let value = x.value;
+                    Some(value)
+                }
+                None => {
+                    None
+                }
+            };
+
+            let i_comment = match o_sink_value {
+                Some(value) => Comment {
+                    search: "pointer_search".to_string(),
+                    vaddr: vaddr,
+                    paddr: paddr,
+                    sink_paddr: sink_paddr,
+                    sink_vaddr: sink,
+                    sink_value: Some(value),
+                    sink_vaddr_base: sink_vaddr_base,
+                    sink_paddr_base: sink_paddr_base,
+                    paddr_base: phys_base,
+                    vaddr_base: vaddr_base
+                },
+                // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
+                None => Comment {
+                    search: "pointer_search".to_string(),
+                    vaddr: vaddr,
+                    paddr: paddr,
+                    sink_paddr: sink_paddr,
+                    sink_vaddr: sink,
+                    sink_value: None,
+                    sink_vaddr_base: sink_vaddr_base,
+                    sink_paddr_base: sink_paddr_base,
+                    paddr_base: phys_base,
+                    vaddr_base: vaddr_base
+                },
+                // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
+            };
+
+            let comment = Box::new(i_comment);
+            comments.write().unwrap().insert(vaddr, comment.clone());
+
+            let mut sr = SearchResult::default();
+            sr.boundary_offset = paddr as u64;
+            sr.size = incr;
+            sr.data = match o_sink_value {
+                Some(v) => Some(v.to_le_bytes().to_vec()),
+                None => None,
+            };
+            sr.vaddr = vaddr;
+            sr.paddr = paddr;
+            sr.section_name = match di.get_vaddr_section_name(vaddr) {
+                Some(s) => s.clone(),
+                None => "".to_string(),
+            };
+            sr.digest = "".to_string();
+            // sr.comment = json!(comment).to_string();
+            // debug!("{}", sr.comment);
+
+            let result = Box::new(sr);
+            search_results.push(result);
+        }
+        pos += incr;
+    }
+    info!(
+            "Found {} results in perform_search_buffer_with_bases: paddr: {:08x} vaddr: {:08x}",
+            search_results.len(),
+            phys_base,
+            virt_base
+        );
+    return Ok(search_results.clone());
+}
+
+pub fn perform_analysis(mr: Box<MemRange>, di: Box<DataInterface>,
+                        shared_results : Arc<RwLock<Vec<Box<SearchResult>>>>,
+shared_comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>) -> thread::JoinHandle<()> {
+    return thread::spawn(move || {
 
         debug!(
             "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
@@ -135,7 +304,7 @@ impl PointerSearch {
         let vaddr: u64 = mr.vaddr_start;
         let _paddr: u64 = mr.paddr_start;
         let _size: u64 = mr.size;
-        let r_results = self.perform_search_with_vaddr_start(&*di, vaddr);
+        let r_results = perform_search_with_vaddr_start(&*di, vaddr, shared_comments);
         let mut results: Vec<Box<SearchResult>> = r_results.unwrap();
         for r in results.iter_mut() {
             r.section_name = mr.name.clone();
@@ -148,24 +317,37 @@ impl PointerSearch {
         for r in results.iter_mut() {
             r.section_name = mr.name.clone();
         }
-
-            let owned_results = match Arc::try_unwrap(shared_results) {
-                Ok(inner) => inner.into_inner(),
-                Err(arc_ref) => arc_ref.lock().unwrap().into_inner(),
-            };
-            owned_results.append(&mut results.clone());
+        // let mut owned_results  = match Arc::try_unwrap(shared_results) {
+        //     Ok(inner) => inner.into_inner().clone(),
+        //     Err(arc_ref) => arc_ref.clone().into_inner(),
+        // };
+        // let mut owned_results  = match Arc::try_unwrap(shared_results) {
+        //     Ok(inner) => inner.into_inner().clone(),
+        //     Err(arc_ref) => arc_ref.clone().into_inner(),
+        // };
+        let mut o = shared_results.write().unwrap();
+        o.append(&mut results);
         //     shared_results.lock().unwrap().with(|search_results| {
         //     search_results.append(&mut results);
         // });
-        })
-    }
+    });
+}
+
+impl PointerSearch {
+
+    // pub fn perform_analysis(&self, mr: Box<MemRange>, di: Box<DataInterface>, mut shared_results : Arc<AtomicCell<Vec<Box<SearchResult>>>> ) -> thread::JoinHandle<()> {
+
 
     pub fn perform_search_with_interface_mt(
         &mut self,
         di: &DataInterface,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let mut thread_handles_ac: Vec<thread::JoinHandle<()>> = Vec::new();
-        let mut shared_results : Arc<Mutex<AtomicCell<Vec<Box<SearchResult>>>>> = Arc::new(Mutex::new(AtomicCell::new(Vec::new())));
+        // let mut shared_results : Arc<AtomicCell<Vec<Box<SearchResult>>>> = Arc::new(AtomicCell::new(Vec::new()));
+        let mut shared_results : Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
+        let mut shared_comments : Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>> = Arc::new(RwLock::new(Box::new(BTreeMap::new())));
+        let mut ptr_search : Arc<&mut PointerSearch> = Arc::new(self);
+
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
 
         let v_mrs = self.data_interface.mem_ranges.get_mem_ranges();
@@ -181,21 +363,20 @@ impl PointerSearch {
             "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
             mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
         );
-            thread_handles_ac.push(self.perform_analysis(mr.clone(), self.data_interface.clone(), shared_results.clone()));
+            thread_handles_ac.push(perform_analysis(mr.clone(), self.data_interface.clone(), Arc::clone(&shared_results), Arc::clone(&shared_comments)));
         }
         thread_handles_ac
             .into_iter()
             .for_each(|th| th.join().expect("can't join thread"));
 
 
-        let owned_results = match Arc::try_unwrap(shared_results) {
-            Ok(inner) => inner.into_inner(),
-            Err(arc_ref) => arc_ref.lock().unwrap().into_inner(),
-        };
+
+        let owned_results = shared_results.read().unwrap();
         search_results.append(&mut owned_results.clone());
-        // shared_results.lock().unwrap().with(|ret_search_results| {
-        //     search_results.append(&mut ret_search_results);
-        // });
+        let comments = shared_comments.read().unwrap();
+        for (key, value) in comments.iter() {
+            self.comments.insert(key.clone(), value.clone());
+        }
 
         info!("Found {} results.", search_results.len());
         return Ok(search_results);
