@@ -4,12 +4,14 @@ use std::error::Error as StdErr;
 use std::fs::{create_dir_all, File};
 use std::path::{Path, PathBuf};
 use std::io::{BufWriter, Write};
+use std::sync::{Arc, RwLock};
 
 use regex::bytes::Regex;
 use regex::RegexBuilder;
 use serde_json::json;
 
 use luau_search::pointer::{PointerSearch, Comment as PtrComment};
+use luau_search::luapage::{LuaPageSearch, Comment as LPComment};
 use luau_search::regexblock::{RegexBlockSearch, ROBLOX_REGEX_END, ROBLOX_REGEX_START};
 use luau_search::search::{Search, SearchResult};
 use mem_analysis::data_interface::DataInterface;
@@ -87,6 +89,10 @@ struct Arguments {
     /// input path of the memory dump
     #[arg(short, long, value_name = "FILE")]
     output_path: Option<PathBuf>,
+
+    /// input path of the memory dump
+    #[arg(short, long, value_name = "u64")]
+    num_threads: Option<u64>,
 }
 
 // pub struct DataInterface {
@@ -104,14 +110,15 @@ fn check_create(ofilename: &PathBuf) -> std::io::Result<()> {
 fn search_regex_all(
     spattern: String,
     epattern: String,
-    data_interface: &DataInterface,
+    di_arw: Arc<RwLock<Box<DataInterface>>>,
 ) -> Vec<SearchResult> {
     debug!(
         "Searching Raw Data Buffer for {} => {}.",
         spattern, epattern,
     );
+    let di = di_arw.read().unwrap();
     let mut search_results = Vec::new();
-    let o_ro_buf = data_interface.buffer.get_shared_buffer();
+    let o_ro_buf = di.buffer.get_shared_buffer();
     if !o_ro_buf.is_some() {
         error!("No data loaded, can't search.");
         return search_results;
@@ -132,7 +139,7 @@ fn search_regex_all(
     }
 
     // update the addressing in the results
-    for (_k, mr) in data_interface.mem_ranges.pmem_ranges.iter() {
+    for (_k, mr) in di.mem_ranges.pmem_ranges.iter() {
         for r in search_results.iter_mut() {
             let va = &mr.vaddr_start;
             let pa = &mr.paddr_start;
@@ -157,12 +164,32 @@ fn search_regex_all(
 
 fn search_for_pointers(
     pointer_search: &mut PointerSearch,
-    data_interface: &DataInterface,
+    data_interface: Arc<RwLock<Box<DataInterface>>>,
 ) -> Vec<SearchResult> {
     // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
     debug!("Searching Memory Ranges pointer.");
     let mut search_results: Vec<SearchResult> = Vec::new();
-    let r_search_results = pointer_search.search_interface(data_interface);
+    let r_search_results = pointer_search.search_interface(data_interface.clone());
+    match r_search_results {
+        Ok(results) => {
+            for result in results.iter() {
+                search_results.push(*result.clone());
+            }
+        }
+        Err(_) => {}
+    }
+    info!("Found {} results.", search_results.len());
+    return search_results;
+}
+
+fn search_for_luapages(
+    lp_search: &mut LuaPageSearch,
+    data_interface: Arc<RwLock<Box<DataInterface>>>,
+) -> Vec<SearchResult> {
+    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
+    debug!("Searching Memory Ranges pointer.");
+    let mut search_results: Vec<SearchResult> = Vec::new();
+    let r_search_results = lp_search.search_interface(data_interface.clone());
     match r_search_results {
         Ok(results) => {
             for result in results.iter() {
@@ -178,11 +205,12 @@ fn search_for_pointers(
 fn search_regex_ranges(
     spattern: String,
     epattern: String,
-    data_interface: &DataInterface,
+    di_arw: Arc<RwLock<Box<DataInterface>>>,
 ) -> Vec<SearchResult> {
     // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
     debug!("Searching Memory Ranges for {} => {}.", spattern, epattern,);
-    let o_ro_buf = data_interface.buffer.get_shared_buffer();
+    let di = di_arw.read().unwrap();
+    let o_ro_buf = di.buffer.get_shared_buffer();
     let mut search_results = Vec::new();
     if !o_ro_buf.is_some() {
         error!("No data loaded, can't search.");
@@ -194,7 +222,7 @@ fn search_regex_ranges(
         .build()
         .expect("Invalid Regex");
 
-    for (_k, mr) in data_interface.mem_ranges.pmem_ranges.iter() {
+    for (_k, mr) in di.mem_ranges.pmem_ranges.iter() {
         // if !memory_regex.is_match(&mr.name) {
         //     // info!("Skipping {} since it's not heap allocated.",mr.name);
         //     continue;
@@ -304,11 +332,43 @@ fn write_pointer_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<PtrCo
     }
 }
 
+fn write_luapage_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<LPComment>>) -> () {
+    let o_writer = File::create(&output_filename);
+    let mut writer = match o_writer {
+        Ok(file) => BufWriter::new(file),
+        Err(err) => {
+            let msg = format!(
+                "Failed to open file: {}. {} ",
+                output_filename.display(),
+                err
+            );
+            error!("{}", msg);
+            panic!("{}", msg);
+        }
+    };
+
+    for result in ptr_comments.iter() {
+        match writeln!(writer, "{}", json!(result).to_string()) {
+            Ok(_) => {writer.flush().unwrap();}
+            Err(err) => {
+                let msg = format!(
+                    "Failed to write data to: {}. {} ",
+                    output_filename.display(),
+                    err
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+    }
+}
+
 fn interactive_loop(
     spattern: String,
     epattern: String,
     o_outputdir: Option<PathBuf>,
-    data_interface: Box<DataInterface>,
+    data_interface: Arc<RwLock<Box<DataInterface>>>,
+    num_threads: Option<u64>
 ) -> Result<(), Box<dyn StdErr>> {
     println!("Enter the command");
     debug!(
@@ -316,8 +376,15 @@ fn interactive_loop(
         spattern, epattern
     );
 
+    let max_threads = match num_threads {
+        Some(v) =>v,
+        None => 10 as u64
+    };
     let mut ptr_search = PointerSearch::new(None, None, data_interface.clone());
+    ptr_search.max_threads = max_threads;
 
+    let mut lp_search = LuaPageSearch::new(None, None, data_interface.clone(), None, None);
+    lp_search.max_threads = max_threads;
     // let bv_mrs = data_interface.ranges.get_mem_ranges();
     // let mut wv_mrs = Vec::new();
     // let mut v_mrs = Vec::new();
@@ -348,13 +415,20 @@ fn interactive_loop(
             }
         };
 
-        let pointer_results = search_for_pointers(&mut ptr_search, &data_interface);
-        let res_comments = ptr_search.get_comments();
-        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
-        write_pointer_comments(ptr_comment_results_filename, &res_comments);
+        let _lua_page = search_for_luapages(&mut lp_search, data_interface.clone());
+        // let lp_res_comments = lp_search.get_comments();
+        let lp_comment_results_filename = ofilepath.join("luapage_comments.json");
+        // write_luapage_comments(lp_comment_results_filename, &lp_res_comments);
+        lp_search.write_comments(lp_comment_results_filename);
 
-        let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), &data_interface);
-        let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), &data_interface);
+        let _pointer_results = search_for_pointers(&mut ptr_search, data_interface.clone());
+        // let res_comments = ptr_search.get_comments();
+        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
+        // write_pointer_comments(ptr_comment_results_filename, &res_comments);
+        ptr_search.write_comments(ptr_comment_results_filename);
+
+        let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), data_interface.clone());
+        let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), data_interface.clone());
 
         let fd_results_filename = ofilepath.join("full_dump_roblox_assets.json");
         write_search_results(fd_results_filename, &full_dump_results);
@@ -429,8 +503,7 @@ fn main() -> Result<(), Box<dyn StdErr>> {
         // println!("{}", s);
         // return Ok(());
     }
-
-    let data_interface = Box::new(DataInterface::new_from_radare_info(&args.dmp, &infos, None));
+    let data_interface = Arc::new(RwLock::new(Box::new(DataInterface::new_from_radare_info(&args.dmp, &infos, None))));
     println!("{}", infos.items.get(0).unwrap());
 
     if args.interactive {
@@ -439,6 +512,7 @@ fn main() -> Result<(), Box<dyn StdErr>> {
             regex_end.to_string(),
             args.output_path,
             data_interface.clone(),
+            args.num_threads,
         );
     }
 

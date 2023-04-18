@@ -2,3 +2,4 @@
 pub mod pointer;
 pub mod regexblock;
 pub mod search;
+pub mod luapage;
