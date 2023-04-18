@@ -1,30 +1,18 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error as StdErr;
-// use multimap::MultiMap;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-// use serde::{Serialize};
-// use std::fmt::{Display, Formatter, Result as FmtResult};
 use log::{debug, info};
-use crossbeam::{
-    atomic::AtomicCell,
-    channel::{unbounded, Receiver, Sender},
-    queue::ArrayQueue,
-    sync::WaitGroup,
-};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Barrier};
+use std::time::{Duration as StdDuration};
+use chrono::{DateTime, Utc, Duration};
+
+use serde_json::json;
+use serde::ser::{Serialize, Serializer, SerializeMap};
+use diesel::{Queryable, Selectable};
 
 use std::thread;
 use mem_analysis::memory::{MemRange};
-
-
-// use mem_analysis::memory::{MemRange};
 use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
-// use mem_analysis::pointers::{PointerIndex, PointerRange};
-use serde_json::json;
-use serde::ser::{Serialize, Serializer, SerializeMap};
-
-use diesel::{Queryable, Selectable};
 
 use crate::search::*;
 
@@ -123,15 +111,19 @@ pub struct PointerSearch {
     // pub vaddr_alignment: u8, // in bytes on boundaries
     pub data_interface: Box<DataInterface>,
     pub comments : Box<BTreeMap<u64, Box<Comment>>>,
+    pub shared_comments : Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
+    pub max_threads: u64,
 }
 
 pub fn perform_search_with_vaddr_start(
-    di: &DataInterface,
-    svaddr: u64,
-    comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
-) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
-    // let mut comments:Box<BTreeMap<u64, Box<Comment>>> = Box::new(BTreeMap::new());
-    let mut search_results: Vec<Box<SearchResult>> = Vec::new();
+    di: &Box<DataInterface>,
+    mr: &Box<MemRange>,
+    shared_results : Arc<RwLock<Vec<Box<SearchResult>>>>,
+    shared_comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
+) -> Result<(), Box<dyn StdErr>> {
+
+    let svaddr: u64 = mr.vaddr_start;
+    let mut found = 0 as u64;
     let alignment: u64 = if di.vmem_info.alignment == 0 {
         1
     } else {
@@ -149,14 +141,14 @@ pub fn perform_search_with_vaddr_start(
     let o_vaddr_base = di.get_vaddr_base(&svaddr);
     if o_vaddr_base.is_none() {
         // debug!("Failed to find the range for vaddr: {:08x}", vaddr  );
-        return Ok(search_results);
+        return Ok(());
     }
 
     let phys_base = di.get_paddr_base_from_vaddr(&svaddr).unwrap();
 
     let o_end = di.get_vaddr_end(svaddr);
     if o_end.is_none() {
-        return Ok(search_results);
+        return Ok(());
     }
     let _end = o_end.unwrap();
     let vaddr_base = o_vaddr_base.unwrap();
@@ -169,7 +161,7 @@ pub fn perform_search_with_vaddr_start(
     // so we need to accomodate the empty array gracefully here
     let o_vaddr_buf = di.shared_buffer_vaddr(virt_base);
     if o_vaddr_buf.is_none() {
-        return Ok(search_results);
+        return Ok(());
     }
     let vaddr_buf = o_vaddr_buf.unwrap();
     let endian = &di.vmem_info.endian;
@@ -230,7 +222,7 @@ pub fn perform_search_with_vaddr_start(
             };
 
             let i_comment = match o_sink_value {
-                Some(value) => Comment {
+                Some(value) => Box::new(Comment {
                     search: "pointer_search".to_string(),
                     vaddr: vaddr,
                     paddr: paddr,
@@ -241,9 +233,9 @@ pub fn perform_search_with_vaddr_start(
                     sink_paddr_base: sink_paddr_base,
                     paddr_base: phys_base,
                     vaddr_base: vaddr_base
-                },
+                }),
                 // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
-                None => Comment {
+                None => Box::new(Comment {
                     search: "pointer_search".to_string(),
                     vaddr: vaddr,
                     paddr: paddr,
@@ -254,99 +246,59 @@ pub fn perform_search_with_vaddr_start(
                     sink_paddr_base: sink_paddr_base,
                     paddr_base: phys_base,
                     vaddr_base: vaddr_base
-                },
+                }),
                 // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
             };
 
-            let comment = Box::new(i_comment);
-            comments.write().unwrap().insert(vaddr, comment.clone());
+            // let comment = Box::new(i_comment);
 
-            let mut sr = SearchResult::default();
+
+            let mut sr = Box::new(SearchResult::default());
             sr.boundary_offset = paddr as u64;
             sr.size = incr;
-            sr.data = match o_sink_value {
-                Some(v) => Some(v.to_le_bytes().to_vec()),
-                None => None,
-            };
+            // sr.data = match o_sink_value {
+            //     Some(v) => Some(v.to_le_bytes().to_vec()),
+            //     None => None,
+            // };
             sr.vaddr = vaddr;
             sr.paddr = paddr;
-            sr.section_name = match di.get_vaddr_section_name(vaddr) {
-                Some(s) => s.clone(),
-                None => "".to_string(),
-            };
+            // sr.section_name = match di.get_vaddr_section_name(vaddr) {
+            //     Some(s) => s.clone(),
+            //     None => "".to_string(),
+            // };
             sr.digest = "".to_string();
+            sr.section_name = mr.name.clone();
             // sr.comment = json!(comment).to_string();
             // debug!("{}", sr.comment);
-
-            let result = Box::new(sr);
-            search_results.push(result);
+            shared_comments.write().unwrap().insert(vaddr, i_comment);
+            shared_results.write().unwrap().push(sr);
+            found += 1;
+            // search_results.push(result);
         }
         pos += incr;
     }
     info!(
-            "Found {} results in perform_search_buffer_with_bases: paddr: {:08x} vaddr: {:08x}",
-            search_results.len(),
+            "Found {} results in perform_search_buffer_with_bases: paddr: {:08x} vaddr: {:08x} name: {}, total comments: {}, total results: {}",
+            found,
             phys_base,
-            virt_base
+            virt_base,
+            mr.name,
+            shared_comments.read().unwrap().len(),
+            shared_results.read().unwrap().len()
         );
-    return Ok(search_results.clone());
-}
-
-pub fn perform_analysis(mr: Box<MemRange>, di: Box<DataInterface>,
-                        shared_results : Arc<RwLock<Vec<Box<SearchResult>>>>,
-shared_comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>) -> thread::JoinHandle<()> {
-    return thread::spawn(move || {
-
-        debug!(
-            "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
-            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
-        );
-        let vaddr: u64 = mr.vaddr_start;
-        let _paddr: u64 = mr.paddr_start;
-        let _size: u64 = mr.size;
-        let r_results = perform_search_with_vaddr_start(&*di, vaddr, shared_comments);
-        let mut results: Vec<Box<SearchResult>> = r_results.unwrap();
-        for r in results.iter_mut() {
-            r.section_name = mr.name.clone();
-        }
-        debug!(
-                "Found {} results in {}.",
-                results.len(),
-                mr.name,
-            );
-        for r in results.iter_mut() {
-            r.section_name = mr.name.clone();
-        }
-        // let mut owned_results  = match Arc::try_unwrap(shared_results) {
-        //     Ok(inner) => inner.into_inner().clone(),
-        //     Err(arc_ref) => arc_ref.clone().into_inner(),
-        // };
-        // let mut owned_results  = match Arc::try_unwrap(shared_results) {
-        //     Ok(inner) => inner.into_inner().clone(),
-        //     Err(arc_ref) => arc_ref.clone().into_inner(),
-        // };
-        let mut o = shared_results.write().unwrap();
-        o.append(&mut results);
-        //     shared_results.lock().unwrap().with(|search_results| {
-        //     search_results.append(&mut results);
-        // });
-    });
+    return Ok(());
 }
 
 impl PointerSearch {
-
-    // pub fn perform_analysis(&self, mr: Box<MemRange>, di: Box<DataInterface>, mut shared_results : Arc<AtomicCell<Vec<Box<SearchResult>>>> ) -> thread::JoinHandle<()> {
-
 
     pub fn perform_search_with_interface_mt(
         &mut self,
         di: &DataInterface,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
-        let mut thread_handles_ac: Vec<thread::JoinHandle<()>> = Vec::new();
+        let mut thread_handles_ac: VecDeque<thread::JoinHandle<()>> = VecDeque::new();
         // let mut shared_results : Arc<AtomicCell<Vec<Box<SearchResult>>>> = Arc::new(AtomicCell::new(Vec::new()));
         let mut shared_results : Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
-        let mut shared_comments : Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>> = Arc::new(RwLock::new(Box::new(BTreeMap::new())));
-        let mut ptr_search : Arc<&mut PointerSearch> = Arc::new(self);
+        let mut shared_comments = Arc::clone(&self.shared_comments);
 
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
 
@@ -357,28 +309,58 @@ impl PointerSearch {
                 wv_mrs.push(mr.clone());
             }
         }
-
+        let max_threads = self.max_threads.clone() as usize;
         for mr in wv_mrs.iter() {
+            let bsr = Arc::clone(&shared_results);
+            let bsc = Arc::clone(&shared_comments);
+            let bs = Arc::new(self.clone());
+            let bmr = mr.clone();
+
+            let t = thread::spawn(move || {
+                let bbs = Arc::clone(&bs);
+                let _ = perform_search_with_vaddr_start(&bbs.data_interface.clone(), &bmr, bsr.clone(), bsc.clone());
+            });
+            thread_handles_ac.push_back(t);
             debug!(
             "Searching Memory Range: {} of {} for pointers from starting at vaddr {:08x} and paddr {:08x}.",
-            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
-        );
-            thread_handles_ac.push(perform_analysis(mr.clone(), self.data_interface.clone(), Arc::clone(&shared_results), Arc::clone(&shared_comments)));
+            mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start);
+            // this loop structure is used to relieve memory pressure and ensure too many threads
+            // are not created at once.  I had a hard time using the thread pool to help men manage
+            // this
+            while thread_handles_ac.len() > max_threads {
+                let mut dt_enter = Utc::now();
+                let dt_exit = dt_enter.checked_add_signed(Duration::milliseconds(500)).unwrap();
+                // Join as many threads as we can in 500 ms
+                while dt_enter < dt_exit && thread_handles_ac.len() > 0{
+                    let at = thread_handles_ac.pop_front().unwrap();
+                    debug!("joining the threas.");
+                    at.join();
+                    debug!("joining the threas.");
+                    dt_enter = Utc::now();
+                }
+                // want to push down the number of running threads further. Join as many threads as
+                // we can in the next 500 ms (not a sophisticated strategy)
+                if thread_handles_ac.len() > 0 && thread_handles_ac.len() > max_threads - 5{
+                    let mut dt_enter = Utc::now();
+                    let dt_exit = dt_enter.checked_add_signed(Duration::milliseconds(500)).unwrap();
+                    while dt_enter < dt_exit && thread_handles_ac.len() > 0{
+                        let at = thread_handles_ac.pop_front().unwrap();
+                        at.join();
+                        dt_enter = Utc::now();
+                    }
+                }
+            }
         }
+
         thread_handles_ac
             .into_iter()
             .for_each(|th| th.join().expect("can't join thread"));
 
-
-
-        let owned_results = shared_results.read().unwrap();
-        search_results.append(&mut owned_results.clone());
-        let comments = shared_comments.read().unwrap();
-        for (key, value) in comments.iter() {
-            self.comments.insert(key.clone(), value.clone());
-        }
-
+        let lshared_results = Arc::try_unwrap(shared_results).expect("lock still has owners");
+        let search_results = lshared_results.into_inner().expect("Mutex cannot be locked");
         info!("Found {} results.", search_results.len());
+        info!("Found {} shared_comments.", shared_comments.read().unwrap().len());
+        info!("Found {} self.shared_comments.", shared_comments.read().unwrap().len());
         return Ok(search_results);
     }
     pub fn perform_search_with_interface(
@@ -763,12 +745,17 @@ impl PointerSearch {
             sink_values: Box::new(HashMap::new()),
             data_interface: data_interface,
             comments: Box::new(BTreeMap::new()),
+            shared_comments: Arc::new(RwLock::new(Box::new(BTreeMap::new()))),
+            max_threads: 30,
         }
     }
 
     pub fn get_comments(&self) -> Vec<Box<Comment>> {
         let mut comments = Vec::new();
-        for (_, c) in self.comments.iter() {
+        // for (_, c) in self.comments.iter() {
+        //     comments.push(c.clone())
+        // }
+        for (_, c) in self.shared_comments.read().unwrap().iter() {
             comments.push(c.clone())
         }
         return comments;
