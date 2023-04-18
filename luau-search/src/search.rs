@@ -2,6 +2,7 @@ use mem_analysis::data_interface::DataInterface;
 use serde::Serialize;
 use std::error::Error as StdErr;
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::sync::{Arc, RwLock};
 
 pub trait Search {
     fn search_buffer_next(
@@ -20,11 +21,11 @@ pub trait Search {
     // fn search_interface_next(&mut self, di: &DataInterface, pos : u64) -> Result<Option<SearchResult>, Box<dyn StdErr>>;
     fn search_interface(
         &mut self,
-        di: &DataInterface,
+        di: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>>;
     fn search_interface_with_bases(
         &mut self,
-        di: &DataInterface,
+        di: Arc<RwLock<Box<DataInterface>>>,
         phys_base: u64,
         virt_base: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>>;

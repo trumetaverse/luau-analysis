@@ -1,5 +1,6 @@
 use crate::search::*;
 use std::error::Error as StdErr;
+use std::sync::{Arc, RwLock};
 
 use log::{debug, error, info};
 use md5;
@@ -58,8 +59,9 @@ impl Search for RegexBlockSearch {
 
     fn search_interface(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+        let di = di_arw.read().unwrap();
         let o_ro_buf = di.buffer.get_shared_buffer();
         let search_results = Vec::new();
         if !o_ro_buf.is_some() {
@@ -72,10 +74,11 @@ impl Search for RegexBlockSearch {
     }
     fn search_interface_with_bases(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
         phys_base: u64,
         virt_base: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+        let di = di_arw.read().unwrap();
         let o_ro_buf = di.buffer.get_shared_buffer();
         let search_results = Vec::new();
         if !o_ro_buf.is_some() {

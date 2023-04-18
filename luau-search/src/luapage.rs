@@ -1,10 +1,14 @@
+use std::fs::{create_dir_all, File};
+use std::path::{Path, PathBuf};
+use std::io::{BufWriter, Write};
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error as StdErr;
 use bincode;
 use bincode::deserialize;
 use bincode::config::{Options};
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use log::{debug, info};
+use log::{debug, info, error};
 use std::sync::{Arc, Mutex, RwLock, Barrier};
 use std::time::{Duration as StdDuration};
 use std::thread;
@@ -42,17 +46,17 @@ impl Search for LuaPageSearch {
     }
     fn search_interface(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
-        return self.perform_search_with_interface_mt(di);
+        return self.perform_search_with_interface_mt(di_arw);
     }
     fn search_interface_with_bases(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
         _phys_base: u64,
         virt_base: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
-        return self.perform_search_with_vaddr_start(di, virt_base);
+        return self.perform_search_with_vaddr_start(di_arw, virt_base);
     }
 }
 
@@ -123,12 +127,13 @@ pub struct LuaPageX32 {
 impl LuaPageX32 {
     // impl LuaPage for LuaPageX32 {
 
-    fn load(buffer: &[u8], data_interface: Box<DataInterface>) -> Option<Self> {
+    fn load(buffer: &[u8], di_arw: Arc<RwLock<Box<DataInterface>>>) -> Option<Self> {
         if buffer.len() < LuaPageX32::get_x32_size() as usize {
             return None;
         }
         // #FIXME #TODO implement architecture specific deserialization
-        let o_page = match &data_interface.vmem_info.endian {
+        let di = di_arw.read().unwrap();
+        let o_page = match di.vmem_info.endian {
             ENDIAN::BIG => {
                 let options = bincode::DefaultOptions::new().with_big_endian()
                     .allow_trailing_bytes()
@@ -258,7 +263,7 @@ pub struct LuaPageSearch {
     pub addr_to_lp: Box<HashMap<u64, Box<LuaPageX32>>>,
     pub start: Option<u64>,
     pub stop: Option<u64>,
-    pub data_interface: Box<DataInterface>,
+    pub data_interface: Arc<RwLock<Box<DataInterface>>>,
     pub comments: Box<BTreeMap<u64, Box<Comment>>>,
     pub page_size: Option<u32>,
     pub max_block_size: Option<u32>,
@@ -267,12 +272,13 @@ pub struct LuaPageSearch {
 }
 
 pub fn perform_search_with_vaddr_start(
-    di: &Box<DataInterface>,
+    di_arw: Arc<RwLock<Box<DataInterface>>>,
     mr: &Box<MemRange>,
     max_block_size: Option<u32>,
     shared_results: Arc<RwLock<Vec<Box<SearchResult>>>>,
     shared_comments: Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
 ) -> Result<(), Box<dyn StdErr>> {
+    let di = di_arw.read().unwrap();
     let svaddr: u64 = mr.vaddr_start;
     let mut found = 0 as u64;
     let alignment: u64 = if di.vmem_info.alignment == 0 {
@@ -331,7 +337,7 @@ pub fn perform_search_with_vaddr_start(
             continue;
         }
         let lp_start_pos = pos - page_size_fld_offset;
-        let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], di.clone());
+        let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
         if o_lp.is_none() {
             pos += incr;
             continue;
@@ -373,15 +379,16 @@ pub fn perform_search_with_vaddr_start(
 impl LuaPageSearch {
     pub fn perform_search_with_interface_mt(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+        let di = di_arw.read().unwrap();
         let mut thread_handles_ac: VecDeque<thread::JoinHandle<()>> = VecDeque::new();
         let mut shared_results: Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
         let mut shared_comments = Arc::clone(&self.shared_comments);
 
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
 
-        let v_mrs = self.data_interface.mem_ranges.get_mem_ranges();
+        let v_mrs = di.mem_ranges.get_mem_ranges();
         let mut wv_mrs = Vec::new();
         for mr in v_mrs.iter() {
             if mr.perm.find("w").is_some() {
@@ -398,7 +405,7 @@ impl LuaPageSearch {
 
             let t = thread::spawn(move || {
                 let bbs = Arc::clone(&bs);
-                let _ = perform_search_with_vaddr_start(&bbs.data_interface.clone(), &bmr, bbs.max_block_size.clone(), bsr.clone(), bsc.clone());
+                let _ = perform_search_with_vaddr_start(bbs.data_interface.clone(), &bmr, bbs.max_block_size.clone(), bsr.clone(), bsc.clone());
             });
             thread_handles_ac.push_back(t);
             debug!(
@@ -446,11 +453,12 @@ impl LuaPageSearch {
 
     pub fn perform_search_with_interface(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
+        let di = di_arw.read().unwrap();
 
-        let v_mrs = self.data_interface.mem_ranges.get_mem_ranges();
+        let v_mrs = di.mem_ranges.get_mem_ranges();
         let mut wv_mrs = Vec::new();
         for mr in v_mrs.iter() {
             if mr.perm.find("w").is_some() {
@@ -468,7 +476,7 @@ impl LuaPageSearch {
             let _paddr: u64 = mr.paddr_start;
             let _size: u64 = mr.size;
 
-            let r_results = self.perform_search_with_vaddr_start(di, vaddr);
+            let r_results = self.perform_search_with_vaddr_start(di_arw.clone(), vaddr);
             let mut results: Vec<Box<SearchResult>> = r_results.unwrap();
             debug!(
                 "Lua Pages Found {} results in {}, search_results.len() = {}.",
@@ -486,9 +494,10 @@ impl LuaPageSearch {
     }
     pub fn perform_search_with_vaddr_start(
         &mut self,
-        di: &DataInterface,
+        di_arw: Arc<RwLock<Box<DataInterface>>>,
         svaddr: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
+        let di = di_arw.read().unwrap();
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
         let alignment: u64 = if di.vmem_info.alignment == 0 {
             1
@@ -541,19 +550,19 @@ impl LuaPageSearch {
                 break;
             }
 
-            let value = self.data_interface.read_u32(&vaddr_buf[pos as usize..], None).unwrap();
+            let value = di.read_u32(&vaddr_buf[pos as usize..], None).unwrap();
             if value as u64 != hard_coded_page_value {
                 pos += incr;
                 continue;
             }
             let lp_start_pos = pos - page_size_fld_offset;
-            let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], self.data_interface.clone());
+            let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
             if o_lp.is_none() {
                 pos += incr;
                 continue;
             }
             let lp = o_lp.unwrap();
-            if !lp.is_valid_header(&self.data_interface, self.max_block_size, Some(hard_coded_page_value as u32)) {
+            if !lp.is_valid_header(&di, self.max_block_size, Some(hard_coded_page_value as u32)) {
                 pos += incr;
                 continue;
             }
@@ -599,21 +608,22 @@ impl LuaPageSearch {
         virt_base: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
-        let alignment: u64 = if self.data_interface.vmem_info.alignment == 0 {
+        let di = self.data_interface.read().unwrap();
+        let alignment: u64 = if di.vmem_info.alignment == 0 {
             1
         } else {
-            self.data_interface.vmem_info.alignment.into()
+            di.vmem_info.alignment.into()
         };
-        let incr = if self.data_interface.vmem_info.word_sz == 0 {
+        let incr = if di.vmem_info.word_sz == 0 {
             1
         } else {
-            self.data_interface.vmem_info.word_sz.into()
+            di.vmem_info.word_sz.into()
         };
         let mut pos = 0;
         let end: u64 = buffer.len() as u64;
-        let page_mask = self.data_interface.vmem_info.page_mask;
-        let vaddr_base = self.data_interface.get_vaddr_base_from_vaddr(&virt_base).unwrap();
-        let paddr_base = self.data_interface.get_paddr_base_from_vaddr(&virt_base).unwrap();
+        let page_mask = di.vmem_info.page_mask;
+        let vaddr_base = di.get_vaddr_base_from_vaddr(&virt_base).unwrap();
+        let paddr_base = di.get_paddr_base_from_vaddr(&virt_base).unwrap();
         let end: u64 = buffer.len() as u64;
 
         let hard_coded_page_value = 0x3fe8 as u64;
@@ -629,7 +639,7 @@ impl LuaPageSearch {
             }
 
             let lp = o_lp.unwrap();
-            if !lp.is_valid_header(&self.data_interface, self.max_block_size, self.page_size) {
+            if !lp.is_valid_header(&di, self.max_block_size, self.page_size) {
                 pos += incr;
                 continue;
             }
@@ -649,7 +659,7 @@ impl LuaPageSearch {
             //     None => "".to_string(),
             // };
             sr.digest = "".to_string();
-            sr.section_name = match self.data_interface.get_vaddr_section_name(vaddr) {
+            sr.section_name = match di.get_vaddr_section_name(vaddr) {
                 Some(s) => s.clone(),
                 None => "".to_string(),
             };
@@ -670,12 +680,12 @@ impl LuaPageSearch {
         return Ok(search_results.clone());
     }
 
-    pub fn new(start: Option<u64>, stop: Option<u64>, data_interface: Box<DataInterface>, max_block_size: Option<u32>, page_size: Option<u32>) -> Self {
+    pub fn new(start: Option<u64>, stop: Option<u64>, data_interface: Arc<RwLock<Box<DataInterface>>>, max_block_size: Option<u32>, page_size: Option<u32>) -> Self {
         LuaPageSearch {
             start: start.clone(),
             stop: stop.clone(),
             addr_to_lp: Box::new(HashMap::new()),
-            data_interface: data_interface,
+            data_interface: data_interface.clone(),
             comments: Box::new(BTreeMap::new()),
             max_block_size: max_block_size,
             page_size: page_size,
@@ -690,5 +700,35 @@ impl LuaPageSearch {
             comments.push(c.clone())
         }
         return comments;
+    }
+
+    pub fn write_comments(&self, output_filename: PathBuf ) -> () {
+        let o_writer = File::create(&output_filename);
+        let mut writer = match o_writer {
+            Ok(file) => BufWriter::new(file),
+            Err(err) => {
+                let msg = format!(
+                    "Failed to open file: {}. {} ",
+                    output_filename.display(),
+                    err
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+        for (_, c) in self.shared_comments.read().unwrap().iter() {
+            match writeln!(writer, "{}", json!(c).to_string()) {
+                Ok(_) => {writer.flush().unwrap();}
+                Err(err) => {
+                    let msg = format!(
+                        "Failed to write data to: {}. {} ",
+                        output_filename.display(),
+                        err
+                    );
+                    error!("{}", msg);
+                    panic!("{}", msg);
+                }
+            };
+        }
     }
 }
