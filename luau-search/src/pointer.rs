@@ -1,3 +1,5 @@
+use std::ops::Deref;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs::{create_dir_all, File};
 use std::path::{Path, PathBuf};
 use std::io::{BufWriter, Write};
@@ -95,6 +97,34 @@ impl Serialize for Comment {
         }
 
         map.end()
+    }
+}
+
+impl Display for Comment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let fmt = "{{\"{}\":\"{}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{}\"\
+        }}";
+
+        let mut sv = "null".to_string();
+        if self.sink_value.is_some() {
+            sv = format!("{:08x}", self.sink_value.unwrap());
+        }
+
+        write!(
+            f,
+            "{{\"{}\":\"{}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{}\"\
+        }}",
+            "search", &self.search,
+            "paddr", self.paddr,
+            "paddr_base", self.paddr_base,
+            "vaddr", self.vaddr,
+            "vaddr_base", self.vaddr_base,
+            "sink_vaddr", self.sink_vaddr,
+            "sink_paddr", self.sink_paddr,
+            "sink_vaddr_base", self.sink_vaddr_base,
+            "sink_paddr_base", self.sink_paddr_base,
+            "sink_value", sv
+        )
     }
 }
 
@@ -762,10 +792,11 @@ impl PointerSearch {
     }
 
     pub fn write_comments(&self, output_filename: PathBuf ) -> () {
+        let capacity = 1000 * 1024 * 1024;
         let o_writer = File::create(&output_filename);
         let mut writer = match o_writer {
-            // Ok(file) => BufWriter::new(file),
-            Ok(file) => file,
+            Ok(file) => BufWriter::with_capacity(capacity, file),
+            // Ok(file) => file,
             Err(err) => {
                 let msg = format!(
                     "Failed to open file: {}. {} ",
@@ -792,45 +823,32 @@ impl PointerSearch {
             if lines_written % 100000 == 0 {
                 info!("Wrote {} results", lines_written);
             }
-            let serialized = match serde_json::to_string(&c) {
-                Ok(value) => value,
-                Err(err) => {
-                    let msg = format!(
-                        "Failed to write data to: {}. {} ",
-                        output_filename.display(),
-                        err
-                    );
-                    error!("{}", msg);
-                    panic!("{}", msg);
-                }
-            };
-            // writer.write_all(serialized.as_bytes())?;
-            // writer.write_all(b"\n")?;
-            match writer.write_all(serialized.as_bytes()) {
-                Ok(_) => {},//{writer.flush().unwrap();}
-                Err(err) => {
-                    let msg = format!(
-                        "Failed to write data to: {}. {} ",
-                        output_filename.display(),
-                        err
-                    );
-                    error!("{}", msg);
-                    panic!("{}", msg);
-                }
-            };
-            match writer.write_all(b"\n") {
-                Ok(_) => {writer.flush().unwrap();}
-                Err(err) => {
-                    let msg = format!(
-                        "Failed to write data to: {}. {} ",
-                        output_filename.display(),
-                        err
-                    );
-                    error!("{}", msg);
-                    panic!("{}", msg);
-                }
-            };
-            // match writeln!(writer, "{}", json!(c).to_string()) {
+            // let serialized = match serde_json::to_string(&c) {
+            //     Ok(value) => value,
+            //     Err(err) => {
+            //         let msg = format!(
+            //             "Failed to write data to: {}. {} ",
+            //             output_filename.display(),
+            //             err
+            //         );
+            //         error!("{}", msg);
+            //         panic!("{}", msg);
+            //     }
+            // };
+            // let s = format!("{}", c.deref());
+            // match writer.write_all(s.as_bytes()) {
+            //     Ok(_) => {},//{writer.flush().unwrap();}
+            //     Err(err) => {
+            //         let msg = format!(
+            //             "Failed to write data to: {}. {} ",
+            //             output_filename.display(),
+            //             err
+            //         );
+            //         error!("{}", msg);
+            //         panic!("{}", msg);
+            //     }
+            // };
+            // match writer.write_all(b"\n") {
             //     Ok(_) => {writer.flush().unwrap();}
             //     Err(err) => {
             //         let msg = format!(
@@ -842,7 +860,20 @@ impl PointerSearch {
             //         panic!("{}", msg);
             //     }
             // };
+            match writeln!(writer, "{}", json!(c).to_string()) {
+                Ok(_) => {}
+                Err(err) => {
+                    let msg = format!(
+                        "Failed to write data to: {}. {} ",
+                        output_filename.display(),
+                        err
+                    );
+                    error!("{}", msg);
+                    panic!("{}", msg);
+                }
+            };
         }
+        writer.flush().unwrap();
     }
 
     // pub fn add_range_existing(&mut self, start_vaddr: u64, end_vaddr: u64, range_srcs : Arc<Box<RangePointer>>, range_sinks : Arc<Box<RangePointer>>) -> bool {
