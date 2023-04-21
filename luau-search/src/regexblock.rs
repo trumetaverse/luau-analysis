@@ -8,13 +8,9 @@ use regex::bytes::Regex;
 
 use mem_analysis::data_interface::DataInterface;
 
-use diesel::{Queryable, Selectable};
-
 pub static ROBLOX_REGEX_START: &str = r"(:?<roblox)";
 pub static ROBLOX_REGEX_END: &str = r"(:?</roblox>)";
 
-// #[derive(Debug, PartialEq, Clone, Queryable, Selectable)]
-// #[diesel(table_name = "regexblock_results")]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Comment {
     pub search: String,

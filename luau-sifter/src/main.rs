@@ -10,50 +10,12 @@ use regex::bytes::Regex;
 use regex::RegexBuilder;
 use serde_json::json;
 
-use luau_search::pointer::{PointerSearch, Comment as PtrComment};
-use luau_search::luapage::{LuaPageSearch, Comment as LPComment};
+use luau_search::pointer::{PointerSearch};
+use luau_search::luapage::{LuaPageSearch};
 use luau_search::regexblock::{RegexBlockSearch, ROBLOX_REGEX_END, ROBLOX_REGEX_START};
 use luau_search::search::{Search, SearchResult};
 use mem_analysis::data_interface::DataInterface;
 use mem_analysis::radare::RadareMemoryInfos;
-
-// #[derive(Debug, PartialEq, Clone, Serialize)]
-// struct TString {
-//     tt_ : u8,
-//     marked : u8,
-//     memcat : u8,
-//     pad : u8,
-//     atom : u16,
-//
-//     next_TString_ptr : u32,
-//     hash : u32,
-//     len : u32,
-//
-//     data: [u8],
-// }
-//
-//
-// impl TString {
-//     fn match_testring (buffer : &[u8]) -> Option<TString> {
-//         return None;
-//     }
-//     pub fn load(mut reader: impl Read) -> Result<Self, IOErr> {
-//         // Create a Speaker where all the fields are set to some sane default
-//         // (typically all zeroes)
-//         let mut tstring = TString::default();
-//         unsafe {
-//             // Get a slice which treats the `speaker` variable as a byte array
-//             let buffer: &mut [u8] = std::slice::from_raw_parts_mut(
-//                 speaker.as_mut_ptr().cast(),
-//                 mem::size_of::<TString>(),
-//             );
-//
-//             // Read exactly that many bytes from the reader
-//             reader.read_exact(buffer)?;
-//
-//         }
-//     }
-// }
 
 /// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser)]
@@ -63,16 +25,28 @@ struct Arguments {
     #[arg(short, long, action, value_name = "FLAG")]
     interactive: bool,
 
+    /// look for pointers
+    #[arg(short='p', long, action, value_name = "FLAG")]
+    pointer_search: bool,
+
+    /// look for lua_Pages
+    #[arg(short='l', long, action, value_name = "FLAG")]
+    luapage_search: bool,
+
+    /// look for lua_Pages
+    #[arg(short='r', long, action, value_name = "FLAG")]
+    regex_searches: bool,
+
     /// input path of the memory dump
-    #[arg(short, long, action, value_name = "FLAG")]
+    #[arg(short='q', long, action, value_name = "FLAG")]
     quick_test: bool,
 
     /// input path of the memory dump
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     dmp: PathBuf,
 
     /// input
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     r2_sections: PathBuf,
 
     /// regular expression for start
@@ -83,7 +57,7 @@ struct Arguments {
     #[arg(short = 'e', long, value_name = "String")]
     regex_end: Option<String>,
 
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     log_conf: Option<PathBuf>,
 
     /// input path of the memory dump
@@ -93,6 +67,7 @@ struct Arguments {
     /// input path of the memory dump
     #[arg(short, long, value_name = "u64")]
     num_threads: Option<u64>,
+
 }
 
 // pub struct DataInterface {
@@ -155,10 +130,6 @@ fn search_regex_all(
         }
     }
     debug!("Found {} results.", search_results.len());
-    // for r in search_results.iter() {
-    //     println!("{:#?}", r);
-    // }
-    //
     return search_results;
 }
 
@@ -186,7 +157,6 @@ fn search_for_luapages(
     lp_search: &mut LuaPageSearch,
     data_interface: Arc<RwLock<Box<DataInterface>>>,
 ) -> Vec<SearchResult> {
-    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
     debug!("Searching Memory Ranges pointer.");
     let mut search_results: Vec<SearchResult> = Vec::new();
     let r_search_results = lp_search.search_interface(data_interface.clone());
@@ -207,7 +177,6 @@ fn search_regex_ranges(
     epattern: String,
     di_arw: Arc<RwLock<Box<DataInterface>>>,
 ) -> Vec<SearchResult> {
-    // let search = RegexBlockSearch::new(&spattern, &epattern, None, None, None, Some(0), Some(0));
     debug!("Searching Memory Ranges for {} => {}.", spattern, epattern,);
     let di = di_arw.read().unwrap();
     let o_ro_buf = di.buffer.get_shared_buffer();
@@ -223,10 +192,6 @@ fn search_regex_ranges(
         .expect("Invalid Regex");
 
     for (_k, mr) in di.mem_ranges.pmem_ranges.iter() {
-        // if !memory_regex.is_match(&mr.name) {
-        //     // info!("Skipping {} since it's not heap allocated.",mr.name);
-        //     continue;
-        // }
         debug!(
             "Searching Memory Range: {} of {} bytes from starting at vaddr {:08x} and paddr {:08x}.",
             mr.name, mr.vsize, mr.vaddr_start, mr.paddr_start
@@ -262,10 +227,6 @@ fn search_regex_ranges(
         }
     }
     info!("Found {} results.", search_results.len());
-    // for r in search_results.iter() {
-    //     println!("{:#?}", r);
-    // }
-    // println!("{}", json!(search_results));
     return search_results;
 }
 
@@ -301,80 +262,11 @@ fn write_search_results(output_filename: PathBuf, search_results: &Vec<SearchRes
     }
 }
 
-fn write_pointer_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<PtrComment>>) -> () {
-    let o_writer = File::create(&output_filename);
-    let mut writer = match o_writer {
-        Ok(file) => BufWriter::new(file),
-        Err(err) => {
-            let msg = format!(
-                "Failed to open file: {}. {} ",
-                output_filename.display(),
-                err
-            );
-            error!("{}", msg);
-            panic!("{}", msg);
-        }
-    };
-
-    for result in ptr_comments.iter() {
-        match writeln!(writer, "{}", json!(result).to_string()) {
-            Ok(_) => {writer.flush().unwrap();}
-            Err(err) => {
-                let msg = format!(
-                    "Failed to write data to: {}. {} ",
-                    output_filename.display(),
-                    err
-                );
-                error!("{}", msg);
-                panic!("{}", msg);
-            }
-        };
-    }
-}
-
-fn write_luapage_comments(output_filename: PathBuf, ptr_comments: &Vec<Box<LPComment>>) -> () {
-    let o_writer = File::create(&output_filename);
-    let mut writer = match o_writer {
-        Ok(file) => BufWriter::new(file),
-        Err(err) => {
-            let msg = format!(
-                "Failed to open file: {}. {} ",
-                output_filename.display(),
-                err
-            );
-            error!("{}", msg);
-            panic!("{}", msg);
-        }
-    };
-
-    for result in ptr_comments.iter() {
-        match writeln!(writer, "{}", json!(result).to_string()) {
-            Ok(_) => {writer.flush().unwrap();}
-            Err(err) => {
-                let msg = format!(
-                    "Failed to write data to: {}. {} ",
-                    output_filename.display(),
-                    err
-                );
-                error!("{}", msg);
-                panic!("{}", msg);
-            }
-        };
-    }
-}
-
-fn interactive_loop(
-    spattern: String,
-    epattern: String,
-    o_outputdir: Option<PathBuf>,
-    data_interface: Arc<RwLock<Box<DataInterface>>>,
-    num_threads: Option<u64>
+fn perform_pointer_search(
+o_outputdir: Option<PathBuf>,
+data_interface: Arc<RwLock<Box<DataInterface>>>,
+num_threads: Option<u64>
 ) -> Result<(), Box<dyn StdErr>> {
-    println!("Enter the command");
-    debug!(
-        "Executing the regex search with: {} ==> {}.",
-        spattern, epattern
-    );
 
     let max_threads = match num_threads {
         Some(v) =>v,
@@ -383,21 +275,75 @@ fn interactive_loop(
     let mut ptr_search = PointerSearch::new(None, None, data_interface.clone());
     ptr_search.max_threads = max_threads;
 
+    if o_outputdir.is_some() {
+        let ofilepath = o_outputdir.as_ref().unwrap();
+        info!("Checking for output directory: {}", ofilepath.display());
+        match check_create(&ofilepath) {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = format!(
+                    "Failed to create output directory: {}. {}",
+                    ofilepath.display(),
+                    e
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+        let _pointer_results = search_for_pointers(&mut ptr_search, data_interface.clone());
+        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
+        ptr_search.write_comments(ptr_comment_results_filename);
+    }
+    return Ok(());
+}
+
+fn perform_luapage_search(
+    o_outputdir: Option<PathBuf>,
+    data_interface: Arc<RwLock<Box<DataInterface>>>,
+    num_threads: Option<u64>
+) -> Result<(), Box<dyn StdErr>> {
+
+    let max_threads = match num_threads {
+        Some(v) =>v,
+        None => 10 as u64
+    };
     let mut lp_search = LuaPageSearch::new(None, None, data_interface.clone(), None, None);
     lp_search.max_threads = max_threads;
-    // let bv_mrs = data_interface.ranges.get_mem_ranges();
-    // let mut wv_mrs = Vec::new();
-    // let mut v_mrs = Vec::new();
-    // for mr in bv_mrs.iter() {
-    //     v_mrs.push(mr.clone());
-    //     if mr.perm.find("w").is_some() {
-    //         wv_mrs.push(mr.clone());
-    //     }
-    // }
-    // debug!("Adding memranges to the pointer search.");
-    // ptr_search.add_box_mem_ranges(&wv_mrs);
 
+    if o_outputdir.is_some() {
+        let ofilepath = o_outputdir.as_ref().unwrap();
+        info!("Checking for output directory: {}", ofilepath.display());
+        match check_create(&ofilepath) {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = format!(
+                    "Failed to create output directory: {}. {}",
+                    ofilepath.display(),
+                    e
+                );
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+        let _lua_page = search_for_luapages(&mut lp_search, data_interface.clone());
+        let lp_comment_results_filename = ofilepath.join("luapage_comments.json");
+        lp_search.write_comments(lp_comment_results_filename);
+    }
+    return Ok(());
 
+}
+
+fn perform_regex_searches(
+    spattern: String,
+    epattern: String,
+    o_outputdir: Option<PathBuf>,
+    data_interface: Arc<RwLock<Box<DataInterface>>>,
+) -> Result<(), Box<dyn StdErr>> {
+    println!("Enter the command");
+    debug!(
+        "Executing the regex search with: {} ==> {}.",
+        spattern, epattern
+    );
 
     if o_outputdir.is_some() {
         let ofilepath = o_outputdir.as_ref().unwrap();
@@ -415,17 +361,8 @@ fn interactive_loop(
             }
         };
 
-        let _lua_page = search_for_luapages(&mut lp_search, data_interface.clone());
-        // let lp_res_comments = lp_search.get_comments();
-        let lp_comment_results_filename = ofilepath.join("luapage_comments.json");
-        // write_luapage_comments(lp_comment_results_filename, &lp_res_comments);
-        lp_search.write_comments(lp_comment_results_filename);
 
-        let _pointer_results = search_for_pointers(&mut ptr_search, data_interface.clone());
-        // let res_comments = ptr_search.get_comments();
-        let ptr_comment_results_filename = ofilepath.join("pointer_comments.json");
-        // write_pointer_comments(ptr_comment_results_filename, &res_comments);
-        ptr_search.write_comments(ptr_comment_results_filename);
+
 
         let full_dump_results = search_regex_all(spattern.clone(), epattern.clone(), data_interface.clone());
         let range_results = search_regex_ranges(spattern.clone(), epattern.clone(), data_interface.clone());
@@ -434,8 +371,6 @@ fn interactive_loop(
         write_search_results(fd_results_filename, &full_dump_results);
         let mr_results_filename = ofilepath.join("memory_ranges_roblox_assets.json");
         write_search_results(mr_results_filename, &range_results);
-        // let pr_results_filename = ofilepath.join("pointer_search_results.json");
-        // write_search_results(pr_results_filename, &pointer_results);
     }
     Ok(())
 }
@@ -476,41 +411,26 @@ fn main() -> Result<(), Box<dyn StdErr>> {
         args.dmp.as_os_str()
     );
 
-    if args.quick_test {
-        // debug!("Performing quick test of ptr search.");
-        // let mut ptr_search = PointerSearch::new(None, None, Some(32), None, None, None,  None);
-        // debug!("Creating memranges for the pointer search.");
-        // let mrs = MemRanges::from_radare_infos(&infos);
-        // debug!("Checking that no range pointers exist.");
-        // let v1 = ptr_search.get_pointer_range_vec();
-        // assert_eq!(v1.len(), 0);
-        //
-        // // focus only on 'writable' memory
-        // let v_mrs = mrs.get_mem_ranges();
-        // let mut wv_mrs = Vec::new();
-        // for mr in v_mrs.iter() {
-        //     if mr.perm.find("w").is_some() {
-        //         wv_mrs.push(mr.clone());
-        //     }
-        // }
-        // debug!("Adding memranges to the pointer search.");
-        // ptr_search.add_box_mem_ranges(&wv_mrs);
-        // debug!("Checking that range pointers were created with mem ranges.");
-        // let v2 = ptr_search.data_interface.get_pointer_range_vec();
-        // // assert_eq!(v2.len() as u64, mrs.count());
-        // debug!("Serializing a range pointers were created with mem ranges.");
-        // let s = json!(**(v2.get(0).unwrap()));
-        // println!("{}", s);
-        // return Ok(());
-    }
     let data_interface = Arc::new(RwLock::new(Box::new(DataInterface::new_from_radare_info(&args.dmp, &infos, None))));
-    println!("{}", infos.items.get(0).unwrap());
 
-    if args.interactive {
-        return interactive_loop(
+    if args.regex_searches {
+        let _ = perform_regex_searches(
             regex_start.to_string(),
             regex_end.to_string(),
-            args.output_path,
+            args.output_path.clone(),
+            data_interface.clone()
+        );
+    }
+    if args.luapage_search {
+        let _ = perform_luapage_search(
+            args.output_path.clone(),
+            data_interface.clone(),
+            args.num_threads,
+        );
+    }
+    if args.pointer_search {
+        let _ = perform_pointer_search(
+            args.output_path.clone(),
             data_interface.clone(),
             args.num_threads,
         );

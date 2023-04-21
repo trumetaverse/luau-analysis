@@ -1,21 +1,17 @@
-use std::ops::Deref;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::fs::{create_dir_all, File};
-use std::path::{Path, PathBuf};
+use std::fs::{File};
+use std::path::{PathBuf};
 use std::io::{BufWriter, Write};
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::error::Error;
 use std::error::Error as StdErr;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use log::{debug, info, error};
-use std::sync::{Arc, Mutex, RwLock, Barrier};
-use std::time::{Duration as StdDuration};
-use chrono::{DateTime, Utc, Duration};
+use std::sync::{Arc, RwLock};
+use chrono::{Utc, Duration};
 
 use serde_json::json;
 use serde::ser::{Serialize, Serializer, SerializeMap};
-use diesel::{Queryable, Selectable};
 
 use std::thread;
 use mem_analysis::memory::{MemRange};
@@ -59,8 +55,6 @@ impl Search for PointerSearch {
 }
 
 
-// #[derive(Debug, PartialEq, Clone, Queryable, Selectable)]
-// #[diesel(table_name = "pointer_results")]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Comment {
     pub search: String,
@@ -102,8 +96,6 @@ impl Serialize for Comment {
 
 impl Display for Comment {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let fmt = "{{\"{}\":\"{}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{:08x}\", \"{}\":\"{}\"\
-        }}";
 
         let mut sv = "null".to_string();
         if self.sink_value.is_some() {
@@ -130,20 +122,10 @@ impl Display for Comment {
 
 #[derive(Debug, Clone)]
 pub struct PointerSearch {
-    // pub ptr_ranges : Box<HashMap<u64, Box<PointerRange> >>,
-    // pub ptr_lookup: Box<HashMap<u64, Box<PointerRange> >>,
-    // pub valid_ranges: HashMap
     pub src_to_sinks: Box<HashMap<u64, u64>>,
     pub sink_values: Box<HashMap<u64, Option<u64>>>,
     pub start: Option<u64>,
     pub stop: Option<u64>,
-    //pub offset_type: Option<OffsetType>,
-    // pub base_vaddr: u64,
-    // pub base_paddr: u64,
-    // pub endian: ENDIAN,
-    // pub page_size : u64,
-    // pub page_mask : u64,
-    // pub vaddr_alignment: u8, // in bytes on boundaries
     pub data_interface: Arc<RwLock<Box<DataInterface>>>,
     pub comments : Box<BTreeMap<u64, Box<Comment>>>,
     pub shared_comments : Arc<RwLock<Box<BTreeMap<u64, Box<Comment>>>>>,
@@ -175,7 +157,6 @@ pub fn perform_search_with_vaddr_start(
 
     let o_vaddr_base = di.get_vaddr_base(&svaddr);
     if o_vaddr_base.is_none() {
-        // debug!("Failed to find the range for vaddr: {:08x}", vaddr  );
         return Ok(());
     }
 
@@ -192,8 +173,6 @@ pub fn perform_search_with_vaddr_start(
     } else {
         svaddr
     };
-    // there may be a 0-sized buffer in which case there is nothing to return
-    // so we need to accomodate the empty array gracefully here
     let o_vaddr_buf = di.shared_buffer_vaddr(virt_base);
     if o_vaddr_buf.is_none() {
         return Ok(());
@@ -224,27 +203,16 @@ pub fn perform_search_with_vaddr_start(
     while pos + incr - 1 < vaddr_buf.len() as u64 {
         let vaddr = pos + virt_base;
         let paddr = pos + phys_base;
-        // debug!("Reading buffer at {:08x}", pos );
-
         let sink = read_value(&vaddr_buf[pos as usize..]);
         let sink_page = sink & page_mask;
         let lookup_has_page = di.vmem_info.ptr_lookup.contains_key(&sink_page);
 
-        let has_alignment = sink % alignment == 0;
-
-        if has_alignment && lookup_has_page {
+        if lookup_has_page {
             let sink_paddr = di.convert_vaddr_to_paddr(&sink).unwrap();
             let sink_paddr_base = di.get_paddr_base_from_vaddr(&sink).unwrap();
             let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
 
             let _bal = di.vmem_info.ptr_lookup.get(&sink_page);
-            // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
-            // {   // Update data interface pointer ranges
-            //     let nm_ptr_range = _bal.unwrap();
-            //     let mut ptr_range = nm_ptr_range.clone();
-            //     ptr_range.add_vpointer(vaddr, sink);
-            //     let ptr_range:&mut Arc<Box<PointerRange>> = &mut (.unwrap());
-            // }
             let o_ptr_value = di.read_word_size_value_at_vaddr(sink);
             let o_sink_value = match o_ptr_value {
                 Some(x) => {
@@ -269,7 +237,6 @@ pub fn perform_search_with_vaddr_start(
                     paddr_base: phys_base,
                     vaddr_base: vaddr_base
                 }),
-                // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
                 None => Box::new(Comment {
                     search: "pointer_search".to_string(),
                     vaddr: vaddr,
@@ -282,33 +249,18 @@ pub fn perform_search_with_vaddr_start(
                     paddr_base: phys_base,
                     vaddr_base: vaddr_base
                 }),
-                // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
             };
-
-            // let comment = Box::new(i_comment);
-
 
             let mut sr = Box::new(SearchResult::default());
             sr.boundary_offset = paddr as u64;
             sr.size = incr;
-            // sr.data = match o_sink_value {
-            //     Some(v) => Some(v.to_le_bytes().to_vec()),
-            //     None => None,
-            // };
             sr.vaddr = vaddr;
             sr.paddr = paddr;
-            // sr.section_name = match di.get_vaddr_section_name(vaddr) {
-            //     Some(s) => s.clone(),
-            //     None => "".to_string(),
-            // };
             sr.digest = "".to_string();
             sr.section_name = mr.name.clone();
-            // sr.comment = json!(comment).to_string();
-            // debug!("{}", sr.comment);
             shared_comments.write().unwrap().insert(vaddr, i_comment);
             shared_results.write().unwrap().push(sr);
             found += 1;
-            // search_results.push(result);
         }
         pos += incr;
     }
@@ -331,11 +283,9 @@ impl PointerSearch {
         di_arw: Arc<RwLock<Box<DataInterface>>>,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let mut thread_handles_ac: VecDeque<thread::JoinHandle<()>> = VecDeque::new();
-        // let mut shared_results : Arc<AtomicCell<Vec<Box<SearchResult>>>> = Arc::new(AtomicCell::new(Vec::new()));
-        let mut shared_results : Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
-        let mut shared_comments = Arc::clone(&self.shared_comments);
+        let shared_results : Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
+        let shared_comments = Arc::clone(&self.shared_comments);
         let di = di_arw.read().unwrap();
-        let mut search_results: Vec<Box<SearchResult>> = Vec::new();
 
         let v_mrs = di.mem_ranges.get_mem_ranges();
         let mut wv_mrs = Vec::new();
@@ -348,11 +298,9 @@ impl PointerSearch {
         for mr in wv_mrs.iter() {
             let bsr = Arc::clone(&shared_results);
             let bsc = Arc::clone(&shared_comments);
-            let bs = Arc::new(self.clone());
             let bmr = mr.clone();
             let cdi = di_arw.clone();
             let t = thread::spawn(move || {
-                let bbs = Arc::clone(&bs);
                 let _ = perform_search_with_vaddr_start(cdi.clone(), &bmr, bsr.clone(), bsc.clone());
             });
             thread_handles_ac.push_back(t);
@@ -368,9 +316,9 @@ impl PointerSearch {
                 // Join as many threads as we can in 500 ms
                 while dt_enter < dt_exit && thread_handles_ac.len() > 0{
                     let at = thread_handles_ac.pop_front().unwrap();
-                    debug!("joining the threas.");
-                    at.join();
-                    debug!("joining the threas.");
+                    // debug!("joining the threas.");
+                    let _ = at.join();
+                    // debug!("joining the threas.");
                     dt_enter = Utc::now();
                 }
                 // want to push down the number of running threads further. Join as many threads as
@@ -380,7 +328,7 @@ impl PointerSearch {
                     let dt_exit = dt_enter.checked_add_signed(Duration::milliseconds(500)).unwrap();
                     while dt_enter < dt_exit && thread_handles_ac.len() > 0{
                         let at = thread_handles_ac.pop_front().unwrap();
-                        at.join();
+                        let _ = at.join();
                         dt_enter = Utc::now();
                     }
                 }
@@ -422,21 +370,6 @@ impl PointerSearch {
             let _paddr: u64 = mr.paddr_start;
             let _size: u64 = mr.size;
 
-            // let mut do_it = false;
-            // let check_one = 0x3cc96270 as u64;
-            // let check_two = 0x359a3d40 as u64;
-            // let check_thre = 0x28a123a0 as u64;
-            // if vaddr < check_one && check_one < vaddr + size {
-            //     do_it = true;
-            // } else if vaddr < check_two && check_two < vaddr + size {
-            //     do_it = true;
-            // } else if vaddr < check_thre && check_thre < vaddr + size {
-            //     do_it = true;
-            // }
-            //
-            // if !do_it {
-            //     continue;
-            // }
             let r_results = self.perform_search_with_vaddr_start(di_arw.clone(), vaddr);
             let mut results: Vec<Box<SearchResult>> = r_results.unwrap();
             debug!(
@@ -476,7 +409,6 @@ impl PointerSearch {
 
         let o_vaddr_base = di.get_vaddr_base(&svaddr);
         if o_vaddr_base.is_none() {
-            // debug!("Failed to find the range for vaddr: {:08x}", vaddr  );
             return Ok(search_results);
         }
 
@@ -539,13 +471,6 @@ impl PointerSearch {
                 let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
 
                 let _bal = di.vmem_info.ptr_lookup.get(&sink_page);
-                // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
-                // {   // Update data interface pointer ranges
-                //     let nm_ptr_range = _bal.unwrap();
-                //     let mut ptr_range = nm_ptr_range.clone();
-                //     ptr_range.add_vpointer(vaddr, sink);
-                //     let ptr_range:&mut Arc<Box<PointerRange>> = &mut (.unwrap());
-                // }
                 self.src_to_sinks.insert(vaddr, sink);
                 self.sink_values.insert(vaddr, Some(sink));
                 let o_ptr_value = di.read_word_size_value_at_vaddr(sink);
@@ -577,7 +502,6 @@ impl PointerSearch {
                         paddr_base: phys_base,
                         vaddr_base: vaddr_base
                     },
-                    // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
                     None => Comment {
                         search: "pointer_search".to_string(),
                         vaddr: vaddr,
@@ -590,7 +514,6 @@ impl PointerSearch {
                         paddr_base: phys_base,
                         vaddr_base: vaddr_base
                     },
-                    // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };
 
                 let comment = Box::new(i_comment);
@@ -610,9 +533,6 @@ impl PointerSearch {
                     None => "".to_string(),
                 };
                 sr.digest = "".to_string();
-                // sr.comment = json!(comment).to_string();
-                // debug!("{}", sr.comment);
-
                 let result = Box::new(sr);
                 search_results.push(result);
             }
@@ -654,9 +574,7 @@ impl PointerSearch {
         while pos < end {
             let vaddr = pos + virt_base;
             let paddr = pos + phys_base;
-            // debug!("Reading buffer at {:08x}", pos );
             let o_rvalue = di.read_word_size_value_at_vaddr(vaddr);
-            // debug!("Resulting value of read was {:#?}", o_rvalue  );
             if o_rvalue.is_none() {
                 pos += incr;
                 continue;
@@ -667,21 +585,11 @@ impl PointerSearch {
             let lookup_has_page = di.vmem_info.ptr_lookup.contains_key(&sink_page);
 
             let has_alignment = sink % alignment == 0;
-            // debug!("perform_search_buffer_with_bases: paddr: {:08x} @ pos {:08x} vaddr: *{:08x} = {:08x}", phys_base, pos, pos + virt_base, rvalue.value  );
-            // debug!("perform_search_buffer_with_bases: lookup_has_page: {} has_alignment = {}", lookup_has_page, has_alignment  );
-            // if self.is_pointer_with_alignment(&rvalue.value)
             if has_alignment && lookup_has_page {
                 let sink_paddr = di.convert_vaddr_to_paddr(&sink).unwrap();
                 let sink_paddr_base = di.get_paddr_base_from_vaddr(&sink).unwrap();
                 let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
                 let _bal = di.vmem_info.ptr_lookup.get(&sink_page);
-                // debug!("perform_search_buffer_with_bases: src: {:08x} sink {:08x} sink_page: *{:08x}", vaddr, sink, sink_page  );
-                // {   // Update data interface pointer ranges
-                //     let nm_ptr_range = _bal.unwrap();
-                //     let mut ptr_range = nm_ptr_range.clone();
-                //     ptr_range.add_vpointer(vaddr, sink);
-                // }
-                // let ptr_range:&mut Arc<Box<PointerRange>> = &mut (.unwrap());
                 self.src_to_sinks.insert(vaddr, sink);
                 self.sink_values.insert(vaddr, Some(sink));
                 let o_ptr_value = di.read_word_size_value_at_vaddr(sink);
@@ -713,7 +621,6 @@ impl PointerSearch {
                         paddr_base: paddr_base,
                         vaddr_base: vaddr_base
                     },
-                    // format!("sink_paddr:{:08x} *({:08x}):{:08x}", sink_paddr, sink, value),
                     None => Comment {
                         search: "pointer_search".to_string(),
                         vaddr: vaddr,
@@ -726,7 +633,6 @@ impl PointerSearch {
                         paddr_base: paddr_base,
                         vaddr_base: vaddr_base
                     },
-                    // format!("sink_paddr:{:08x} *({:08x}):{}", sink_paddr, sink, "INVALID"),
                 };
 
                 let comment = Box::new(i_comment);
@@ -746,8 +652,6 @@ impl PointerSearch {
                     None => "".to_string(),
                 };
                 sr.digest = "".to_string();
-                // sr.comment = json!(&comment).to_string();
-                // debug!("{}", sr.comment);
                 self.comments.insert(vaddr, comment.clone());
                 let result = Box::new(sr);
                 search_results.push(result);
@@ -768,9 +672,6 @@ impl PointerSearch {
         PointerSearch {
             start: start.clone(),
             stop: stop.clone(),
-            // base_paddr: base_paddr,
-            // base_vaddr: base_vaddr,
-            //offset_type: None,
             src_to_sinks: Box::new(HashMap::new()),
             sink_values: Box::new(HashMap::new()),
             data_interface: data_interface.clone(),
@@ -782,9 +683,6 @@ impl PointerSearch {
 
     pub fn get_comments(&self) -> Vec<Box<Comment>> {
         let mut comments = Vec::new();
-        // for (_, c) in self.comments.iter() {
-        //     comments.push(c.clone())
-        // }
         for (_, c) in self.shared_comments.read().unwrap().iter() {
             comments.push(c.clone())
         }
@@ -796,7 +694,6 @@ impl PointerSearch {
         let o_writer = File::create(&output_filename);
         let mut writer = match o_writer {
             Ok(file) => BufWriter::with_capacity(capacity, file),
-            // Ok(file) => file,
             Err(err) => {
                 let msg = format!(
                     "Failed to open file: {}. {} ",
@@ -823,43 +720,7 @@ impl PointerSearch {
             if lines_written % 100000 == 0 {
                 info!("Wrote {} results", lines_written);
             }
-            // let serialized = match serde_json::to_string(&c) {
-            //     Ok(value) => value,
-            //     Err(err) => {
-            //         let msg = format!(
-            //             "Failed to write data to: {}. {} ",
-            //             output_filename.display(),
-            //             err
-            //         );
-            //         error!("{}", msg);
-            //         panic!("{}", msg);
-            //     }
-            // };
-            // let s = format!("{}", c.deref());
-            // match writer.write_all(s.as_bytes()) {
-            //     Ok(_) => {},//{writer.flush().unwrap();}
-            //     Err(err) => {
-            //         let msg = format!(
-            //             "Failed to write data to: {}. {} ",
-            //             output_filename.display(),
-            //             err
-            //         );
-            //         error!("{}", msg);
-            //         panic!("{}", msg);
-            //     }
-            // };
-            // match writer.write_all(b"\n") {
-            //     Ok(_) => {writer.flush().unwrap();}
-            //     Err(err) => {
-            //         let msg = format!(
-            //             "Failed to write data to: {}. {} ",
-            //             output_filename.display(),
-            //             err
-            //         );
-            //         error!("{}", msg);
-            //         panic!("{}", msg);
-            //     }
-            // };
+
             match writeln!(writer, "{}", json!(c).to_string()) {
                 Ok(_) => {}
                 Err(err) => {
@@ -875,53 +736,4 @@ impl PointerSearch {
         }
         writer.flush().unwrap();
     }
-
-    // pub fn add_range_existing(&mut self, start_vaddr: u64, end_vaddr: u64, range_srcs : Arc<Box<RangePointer>>, range_sinks : Arc<Box<RangePointer>>) -> bool {
-    //     // let end = start_vaddr + end_vaddr;
-    //     self.src_addrs.insert(start_vaddr.. end_vaddr, range_srcs.clone());
-    //     self.sink_addrs.insert(start_vaddr.. end_vaddr, range_sinks.clone());
-    //     return true;
-    // }
-
-    // pub fn add_existing_srcs_vec(&mut self, start_vaddr: u64, end_vaddr: u64, range_srcs : Arc<Box<RangePointer>>, range_sinks : Arc<Box<RangePointer>>) -> bool {
-    //     // let end = start_vaddr + end_vaddr;
-    //     self.src_addrs.insert(start_vaddr.. end_vaddr, range_srcs.clone());
-    //     self.sink_addrs.insert(start_vaddr.. end_vaddr, range_sinks.clone());
-    //     return true;
-    // }
-
-    // pub fn add_range(&mut self, start_vaddr: u64, end_vaddr:u64) -> bool {
-    //     let r_sinks = Arc::new(Box::new(RangePointer::new()));
-    //     let r_srcs = Arc::new(Box::new(RangePointer::new(start_vaddr, end_vaddr)));
-    //     return self.add_range_existing(start_vaddr, end_vaddr, r_srcs, r_sinks);
-    // }
-
-    // pub fn add_mem_range(&mut self, mr : &MemRange) -> bool {
-    //     let cpage = mr.vaddr_start & self.page_mask;
-    //     if self.contains_pointer_range(&cpage) {
-    //         return false;
-    //     }
-    //     debug!("MemRange {} does not exist, creating.", mr);
-    //     self.create_pointer_range(mr.paddr_start, mr.vaddr_start, mr.size);
-    //     debug!("MemRange {} does not exist, creating.", mr);
-    //     return true;
-    // }
-    //
-    // pub fn add_mem_ranges(&mut self, mem_ranges: &Vec<MemRange>) -> bool {
-    //     // let mrs = mem_ranges.get_mem_ranges();
-    //     debug!("Creating pointer ranges from {} mem_ranges.", mem_ranges.len());
-    //     for mr in mem_ranges.iter() {
-    //         self.add_mem_range(mr);
-    //     }
-    //     return true;
-    // }
-    //
-    // pub fn add_box_mem_ranges(&mut self, mem_ranges: &Vec<Box<MemRange>>) -> bool {
-    //     // let mrs = mem_ranges.get_mem_ranges();
-    //     debug!("Creating pointer ranges from {} mem_ranges.", mem_ranges.len());
-    //     for mr in mem_ranges.iter() {
-    //         self.add_mem_range(&*mr);
-    //     }
-    //     return true;
-    // }
 }

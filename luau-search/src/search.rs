@@ -18,7 +18,6 @@ pub trait Search {
         virt_base: u64,
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>>;
 
-    // fn search_interface_next(&mut self, di: &DataInterface, pos : u64) -> Result<Option<SearchResult>, Box<dyn StdErr>>;
     fn search_interface(
         &mut self,
         di: Arc<RwLock<Box<DataInterface>>>,
