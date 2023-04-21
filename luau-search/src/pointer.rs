@@ -200,9 +200,10 @@ pub fn perform_search_with_vaddr_start(
         let sink_page = sink & page_mask;
         let lookup_has_page = di.vmem_info.ptr_lookup.contains_key(&sink_page);
 
-        let has_alignment = sink % alignment == 0;
+        let _has_alignment = sink % alignment == 0;
 
-        if has_alignment && lookup_has_page {
+        // if has_alignment && lookup_has_page {
+        if lookup_has_page {
             let sink_paddr = di.convert_vaddr_to_paddr(&sink).unwrap();
             let sink_paddr_base = di.get_paddr_base_from_vaddr(&sink).unwrap();
             let sink_vaddr_base = di.get_vaddr_base_from_vaddr(&sink).unwrap();
