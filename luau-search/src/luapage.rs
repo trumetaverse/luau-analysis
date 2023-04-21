@@ -1,26 +1,22 @@
-use std::fs::{create_dir_all, File};
-use std::path::{Path, PathBuf};
+use std::fs::{File};
+use std::path::{PathBuf};
 use std::io::{BufWriter, Write};
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error as StdErr;
 use bincode;
-use bincode::deserialize;
 use bincode::config::{Options};
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
 use log::{debug, info, error};
-use std::sync::{Arc, Mutex, RwLock, Barrier};
-use std::time::{Duration as StdDuration};
+use std::sync::{Arc, RwLock};
 use std::thread;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{Utc, Duration};
 use serde_json::json;
 use serde::ser::{Serialize, Serializer, SerializeMap};
 use serde::Deserialize;
-use diesel::{Queryable, Selectable};
 
 use mem_analysis::memory::{MemRange};
 
-use mem_analysis::data_interface::{DataInterface, ReadValue, ENDIAN};
+use mem_analysis::data_interface::{DataInterface, ENDIAN};
 
 use crate::search::*;
 
@@ -185,10 +181,6 @@ impl LuaPageX32 {
         return std::mem::size_of::<LuaPageX32>() as u64;
     }
 
-    // fn get_x64_size() -> u64 {
-    //     return std::mem::size_of::<LuaPageX64>() as u64;
-    // }
-
     fn get_comment(&self, vaddr: &u64, vaddr_base: &u64, paddr: &u64, paddr_base: &u64) -> Box<Comment> {
         return Box::new(Comment {
             search: "lua_page".to_string(),
@@ -210,29 +202,6 @@ impl LuaPageX32 {
     }
 
     fn is_valid_header(&self, di: &DataInterface, o_max_block_size: Option<u32>, o_page_size: Option<u32>) -> bool {
-        // debug!(
-        //     "di.vmem_info.alignment = {}",
-        //     di.vmem_info.alignment
-        // );
-        // debug!(
-        //     "Lua Pages Constraints: (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev())) = {}",
-        //     (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev()))
-        // );
-        //
-        // debug!(
-        //     "Lua Pages Constraints:   (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next())) = {}",
-        //       (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next()))
-        // );
-        //
-        // debug!(
-        //     "Lua Pages Constraints:     (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev())) = {}",
-        //         (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev()))
-        // );
-        //
-        // debug!(
-        //     "Lua Pages Constraints:     (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext())) = {}",
-        //         (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext()))
-        // );
 
         let basic_constraints = (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev())) &&
             (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next())) &&
@@ -249,10 +218,6 @@ impl LuaPageX32 {
             Some(psz) => self.get_page_size() == psz as i32,
             None => true,
         };
-        // debug!(
-        //     "Lua Pages Constraints: basic-constraints {} block-size-check {} page-size-check {}",
-        //     basic_constraints, block_size_check, page_size_check
-        // );
         return basic_constraints && block_size_check && page_size_check;
     }
 }
@@ -291,13 +256,11 @@ pub fn perform_search_with_vaddr_start(
     } else {
         di.vmem_info.word_sz.into()
     };
-    let page_mask = di.vmem_info.page_mask;
 
     let mut pos: u64 = 0;
 
     let o_vaddr_base = di.get_vaddr_base(&svaddr);
     if o_vaddr_base.is_none() {
-        // debug!("Failed to find the range for vaddr: {:08x}", vaddr  );
         return Ok(());
     }
 
@@ -383,10 +346,8 @@ impl LuaPageSearch {
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let di = di_arw.read().unwrap();
         let mut thread_handles_ac: VecDeque<thread::JoinHandle<()>> = VecDeque::new();
-        let mut shared_results: Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
-        let mut shared_comments = Arc::clone(&self.shared_comments);
-
-        let mut search_results: Vec<Box<SearchResult>> = Vec::new();
+        let shared_results: Arc<RwLock<Vec<Box<SearchResult>>>> = Arc::new(RwLock::new(Vec::new()));
+        let shared_comments = Arc::clone(&self.shared_comments);
 
         let v_mrs = di.mem_ranges.get_mem_ranges();
         let mut wv_mrs = Vec::new();
@@ -509,7 +470,6 @@ impl LuaPageSearch {
         } else {
             di.vmem_info.word_sz.into()
         };
-        let page_mask = di.vmem_info.page_mask;
 
         let mut pos: u64 = 0;
 
@@ -576,10 +536,6 @@ impl LuaPageSearch {
             sr.size = LuaPageX32::get_x32_size() + lp.get_page_size() as u64;
             sr.vaddr = lp_vaddr;
             sr.paddr = lp_paddr;
-            // sr.section_name = match di.get_vaddr_section_name(vaddr) {
-            //     Some(s) => s.clone(),
-            //     None => "".to_string(),
-            // };
             sr.digest = "".to_string();
             sr.section_name = match di.get_vaddr_section_name(vaddr) {
                 Some(s) => s.clone(),
@@ -609,11 +565,7 @@ impl LuaPageSearch {
     ) -> Result<Vec<Box<SearchResult>>, Box<dyn StdErr>> {
         let mut search_results: Vec<Box<SearchResult>> = Vec::new();
         let di = self.data_interface.read().unwrap();
-        let alignment: u64 = if di.vmem_info.alignment == 0 {
-            1
-        } else {
-            di.vmem_info.alignment.into()
-        };
+
         let incr = if di.vmem_info.word_sz == 0 {
             1
         } else {
@@ -621,12 +573,8 @@ impl LuaPageSearch {
         };
         let mut pos = 0;
         let end: u64 = buffer.len() as u64;
-        let page_mask = di.vmem_info.page_mask;
-        let vaddr_base = di.get_vaddr_base_from_vaddr(&virt_base).unwrap();
-        let paddr_base = di.get_paddr_base_from_vaddr(&virt_base).unwrap();
-        let end: u64 = buffer.len() as u64;
 
-        let hard_coded_page_value = 0x3fe8 as u64;
+        let _hard_coded_page_value = 0x3fe8 as u64;
         let page_size_fld_offset = 16 as u64;
         while pos < end {
             let vaddr = pos + virt_base;

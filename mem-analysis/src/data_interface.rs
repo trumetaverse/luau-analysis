@@ -11,12 +11,6 @@ use log::debug;
 use serde;
 use serde::Serialize;
 
-// use binread::{
-//     derive_binread,
-//     io::{Cursor, Read as BinReadRead, Seek, SeekFrom},
-//     BinRead, BinResult, FilePtr, NullString, ReadOptions,
-// };
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReadValue {
     pub consumed: u64,
@@ -398,7 +392,7 @@ impl DataInterface {
     pub fn read_i64(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i64> {
         let mut endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<i64>() {
@@ -413,9 +407,9 @@ impl DataInterface {
 
 
     pub fn read_u64(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u64> {
-        let mut endian = self.vmem_info.endian.clone();
+        let endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            let _endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<i64>() {
@@ -431,7 +425,7 @@ impl DataInterface {
     pub fn read_i32(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i32> {
         let mut endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<i32>() {
@@ -448,7 +442,7 @@ impl DataInterface {
     pub fn read_u32(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u32> {
         let mut endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<u32>() {
@@ -461,9 +455,9 @@ impl DataInterface {
         };
     }
     pub fn read_i16(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i64> {
-        let mut endian = self.vmem_info.endian.clone();
+        let endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            let _endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<u16>() {
@@ -477,9 +471,9 @@ impl DataInterface {
     }
 
     pub fn read_u16(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u16> {
-        let mut endian = self.vmem_info.endian.clone();
+        let endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            let _endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<u16>() {
@@ -493,9 +487,9 @@ impl DataInterface {
     }
 
     pub fn read_u8(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<u8> {
-        let mut endian = self.vmem_info.endian.clone();
+        let _endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            let _endian = o_endian.unwrap();
         }
 
         if buffer.len() < size_of::<u8>() {
@@ -505,9 +499,9 @@ impl DataInterface {
         return Some(buffer[0]);
     }
     pub fn read_i8(&self, buffer: &[u8], o_endian: Option<ENDIAN>) -> Option<i8> {
-        let mut endian = self.vmem_info.endian.clone();
+        let _endian = self.vmem_info.endian.clone();
         if o_endian.is_some() {
-            let endian = o_endian.unwrap();
+            let _endian = o_endian.unwrap();
         }
         if buffer.len() < size_of::<u8>() {
             return None;
