@@ -108,6 +108,20 @@ impl Serialize for Comment {
 
 #[repr(C)]
 #[derive(Debug, Deserialize, Clone)]
+pub struct LuaPageX64 {
+    pub prev: u64,
+    pub next: u64,
+    pub gcolistprev: u64,
+    pub gcolistnext: u64,
+    pub page_size: i32,
+    pub block_size: i32,
+    pub free_list: u64,
+    pub free_next: i32,
+    pub busy_blocks: i32,
+}
+
+#[repr(C)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LuaPageX32 {
     pub prev: u32,
     pub next: u32,
@@ -181,6 +195,115 @@ impl LuaPageX32 {
         return std::mem::size_of::<LuaPageX32>() as u64;
     }
 
+    fn get_x64_size() -> u64 {
+        return std::mem::size_of::<LuaPageX64>() as u64;
+    }
+
+    fn get_comment(&self, vaddr: &u64, vaddr_base: &u64, paddr: &u64, paddr_base: &u64) -> Box<Comment> {
+        return Box::new(Comment {
+            search: "lua_page".to_string(),
+            paddr: *paddr,
+            vaddr: *vaddr,
+            paddr_base: *paddr_base,
+            vaddr_base: *vaddr_base,
+            prev: self.get_prev(),
+            next: self.get_next(),
+            gcolistprev: self.get_gcolistprev(),
+            gcolistnext: self.get_gcolistnext(),
+            freelist: self.get_free_list(),
+
+            block_size: self.get_block_size() as u32,
+            page_size: self.get_page_size() as u32,
+            free_next: self.get_free_next(),
+            busy_blocks: self.get_busy_blocks() as u32,
+        });
+    }
+
+    fn is_valid_header(&self, di: &DataInterface, o_max_block_size: Option<u32>, o_page_size: Option<u32>) -> bool {
+
+        let basic_constraints = (self.get_prev() == 0 || di.is_vaddr_ptr(self.get_prev())) &&
+            (self.get_next() == 0 || di.is_vaddr_ptr(self.get_next())) &&
+            (self.get_gcolistprev() == 0 || di.is_vaddr_ptr(self.get_gcolistprev())) &&
+            (self.get_gcolistnext() == 0 || di.is_vaddr_ptr(self.get_gcolistnext())) &&
+            self.busy_blocks >= 0;
+
+        let block_size_check = match o_max_block_size {
+            Some(bsz) => self.get_block_size() <= bsz as i32,
+            None => true,
+        };
+
+        let page_size_check = match o_page_size {
+            Some(psz) => self.get_page_size() == psz as i32,
+            None => true,
+        };
+        return basic_constraints && block_size_check && page_size_check;
+    }
+}
+
+impl LuaPageX64 {
+    // impl LuaPage for LuaPageX32 {
+
+    fn load(buffer: &[u8], di_arw: Arc<RwLock<Box<DataInterface>>>) -> Option<Self> {
+        if buffer.len() < LuaPageX64::get_x64_size() as usize {
+            return None;
+        }
+        // #FIXME #TODO implement architecture specific deserialization
+        let di = di_arw.read().unwrap();
+        let o_page = match di.vmem_info.endian {
+            ENDIAN::BIG => {
+                let options = bincode::DefaultOptions::new().with_big_endian()
+                    .allow_trailing_bytes()
+                    .with_fixint_encoding()
+                    .with_no_limit();
+                options.deserialize(&buffer)
+            }
+            ENDIAN::LITTLE => {
+                let options = bincode::DefaultOptions::new().with_little_endian()
+                    .allow_trailing_bytes()
+                    .with_fixint_encoding()
+                    .with_no_limit();
+                options.deserialize(&buffer)
+            }
+        };
+        let page = o_page.unwrap();
+        return Some(page);
+    }
+
+    fn get_prev(&self) -> u64 {
+        return self.prev as u64;
+    }
+    fn get_next(&self) -> u64 {
+        return self.next as u64;
+    }
+    fn get_gcolistprev(&self) -> u64 {
+        return self.gcolistprev as u64;
+    }
+    fn get_gcolistnext(&self) -> u64 {
+        return self.gcolistnext as u64;
+    }
+    fn get_page_size(&self) -> i32 {
+        return self.page_size as i32;
+    }
+    fn get_block_size(&self) -> i32 {
+        return self.block_size as i32;
+    }
+    fn get_free_list(&self) -> u64 {
+        return self.free_list as u64;
+    }
+    fn get_free_next(&self) -> i32 {
+        return self.free_next;
+    }
+    fn get_busy_blocks(&self) -> i32 {
+        return self.busy_blocks;
+    }
+
+    fn get_x32_size() -> u64 {
+        return std::mem::size_of::<LuaPageX64>() as u64;
+    }
+    fn get_x64_size() -> u64 {
+        return std::mem::size_of::<LuaPageX64>() as u64;
+    }
+
     fn get_comment(&self, vaddr: &u64, vaddr_base: &u64, paddr: &u64, paddr_base: &u64) -> Box<Comment> {
         return Box::new(Comment {
             search: "lua_page".to_string(),
@@ -225,7 +348,8 @@ impl LuaPageX32 {
 
 #[derive(Debug, Clone)]
 pub struct LuaPageSearch {
-    pub addr_to_lp: Box<HashMap<u64, Box<LuaPageX32>>>,
+    // pub addr_to_lp: Box<HashMap<u64, Box<LuaPageX32>>>,
+    pub addr_to_lp: Box<HashMap<u64, Box<LuaPageX64>>>,
     pub start: Option<u64>,
     pub stop: Option<u64>,
     pub data_interface: Arc<RwLock<Box<DataInterface>>>,
@@ -285,7 +409,9 @@ pub fn perform_search_with_vaddr_start(
     }
     let vaddr_buf = o_vaddr_buf.unwrap();
     let hard_coded_page_value = 0x3fe8 as u64;
-    let page_size_fld_offset = 16 as u64;
+    // let page_size_fld_offset = 4 * 8 as u64;
+    // using 8 byte word size vs 4
+    let page_size_fld_offset = 4 * 8 as u64;
     while pos + incr - 1 < vaddr_buf.len() as u64 {
         let vaddr = pos + virt_base;
         let paddr = pos + phys_base;
@@ -300,7 +426,7 @@ pub fn perform_search_with_vaddr_start(
             continue;
         }
         let lp_start_pos = pos - page_size_fld_offset;
-        let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
+        let o_lp = LuaPageX64::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
         if o_lp.is_none() {
             pos += incr;
             continue;
@@ -316,7 +442,7 @@ pub fn perform_search_with_vaddr_start(
         let comment = lp.get_comment(&lp_vaddr, &lp_paddr, &virt_base, &phys_base);
         let mut sr = Box::new(SearchResult::default());
         sr.boundary_offset = lp_paddr as u64;
-        sr.size = LuaPageX32::get_x32_size() + lp.get_page_size() as u64;
+        sr.size = LuaPageX64::get_x64_size() + lp.get_page_size() as u64;
         sr.vaddr = lp_vaddr;
         sr.paddr = lp_paddr;
         sr.digest = "".to_string();
@@ -516,7 +642,7 @@ impl LuaPageSearch {
                 continue;
             }
             let lp_start_pos = pos - page_size_fld_offset;
-            let o_lp = LuaPageX32::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
+            let o_lp = LuaPageX64::load(&vaddr_buf[lp_start_pos as usize..], di_arw.clone());
             if o_lp.is_none() {
                 pos += incr;
                 continue;
@@ -533,7 +659,7 @@ impl LuaPageSearch {
 
             let mut sr = Box::new(SearchResult::default());
             sr.boundary_offset = lp_paddr as u64;
-            sr.size = LuaPageX32::get_x32_size() + lp.get_page_size() as u64;
+            sr.size = LuaPageX64::get_x64_size() + lp.get_page_size() as u64;
             sr.vaddr = lp_vaddr;
             sr.paddr = lp_paddr;
             sr.digest = "".to_string();
@@ -580,7 +706,7 @@ impl LuaPageSearch {
             let vaddr = pos + virt_base;
             let paddr = pos + phys_base;
             // debug!("Reading buffer at {:08x}", pos );
-            let o_lp = LuaPageX32::load(&buffer[pos as usize..], self.data_interface.clone());
+            let o_lp = LuaPageX64::load(&buffer[pos as usize..], self.data_interface.clone());
             if o_lp.is_none() {
                 pos += incr;
                 continue;
@@ -599,7 +725,7 @@ impl LuaPageSearch {
 
             let mut sr = Box::new(SearchResult::default());
             sr.boundary_offset = lp_paddr as u64;
-            sr.size = LuaPageX32::get_x32_size() + lp.get_page_size() as u64;
+            sr.size = LuaPageX64::get_x64_size() + lp.get_page_size() as u64;
             sr.vaddr = lp_vaddr;
             sr.paddr = lp_paddr;
             // sr.section_name = match di.get_vaddr_section_name(vaddr) {

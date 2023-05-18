@@ -40,8 +40,8 @@ impl VMemInfo {
         VMemInfo {
             page_mask: 0xfffffffffffff000 as u64,
             page_size: 4096 as u64,
-            word_sz: 4,
-            alignment: 4,
+            word_sz: 8,
+            alignment: 8,
             ptr_ranges: Box::new(HashMap::new()),
             ptr_lookup: Box::new(HashMap::new()),
             endian: ENDIAN::LITTLE,
